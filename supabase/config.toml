@@ -1,0 +1,20 @@
+project_id = "my-learning-app"
+
+[db]
+port = 54322
+major_version = 15
+
+[api]
+port = 54321
+schemas = ["public"]
+extra_search_path = ["public", "extensions"]
+max_rows = 1000
+
+[studio]
+port = 54323
+
+[auth]
+enable_signup = true
+# 個人利用のため開発中はメール確認を無効化（本番では Supabase ダッシュボードで調整）
+[auth.email]
+enable_confirmations = false

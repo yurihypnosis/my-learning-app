@@ -1,0 +1,32 @@
+@import "tailwindcss";
+
+@theme {
+  --color-bg: #0c1220;
+  --color-bg2: #162032;
+  --color-card: #15202e;
+  --color-card2: #0f1825;
+  --color-border: #2a3648;
+  --color-fg: #e2e8f0;
+  --color-muted: #94a3b8;
+  --color-muted2: #64748b;
+  --color-primary: #2563eb;
+  --color-primary2: #3b82f6;
+  --font-sans: "Noto Sans JP", ui-sans-serif, system-ui, sans-serif;
+}
+
+html {
+  color-scheme: dark;
+}
+
+body {
+  background: linear-gradient(160deg, #0c1220, #162032);
+  background-attachment: fixed;
+  min-height: 100vh;
+  font-family: var(--font-sans);
+  color: var(--color-fg);
+}
+
+/* スクロールバーをダークに */
+* {
+  scrollbar-color: #2a3648 transparent;
+}
