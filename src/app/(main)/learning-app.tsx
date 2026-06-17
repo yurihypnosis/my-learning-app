@@ -432,12 +432,14 @@ export function LearningApp({
         const qs = questions.filter((q) => q.category_id === c.id);
         let w = 0;
         let cc = 0;
+        let practiced = false;
         qs.forEach((q) => {
           const p = getProgress(progressMap, q.id);
           w += totalWrong(q, p);
           cc += totalCorrect(p);
+          if (p.correct_count + p.wrong_count > 0) practiced = true;
         });
-        const acc = w + cc > 0 ? Math.round((cc / (w + cc)) * 100) : null;
+        const acc = practiced ? Math.round((cc / (w + cc)) * 100) : null;
         return { ...c, w, cc, acc, n: qs.length };
       })
       .sort((a, b) => (a.acc ?? 0) - (b.acc ?? 0));
@@ -472,7 +474,7 @@ export function LearningApp({
                   {s.name}
                 </span>
                 <span className="text-xs text-muted">
-                  {s.acc !== null ? `${s.acc}%` : "未演習"}（誤{s.w}/正{s.cc}）
+                  {s.acc !== null ? `${s.acc}%（誤${s.w}/正${s.cc}）` : "未演習"}
                 </span>
               </div>
               <div className="h-2 overflow-hidden rounded bg-card2">
