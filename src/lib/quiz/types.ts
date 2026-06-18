@@ -7,14 +7,27 @@ export const TWO_WEEKS_MS = 14 * 24 * 60 * 60 * 1000;
 
 export type QuizMode = "shuffle" | "priority";
 
+// 解説データの構造（JSONB で保存するリッチ解説）
+export interface ExplanationData {
+  asked: string;
+  terms?: [string, string][];
+  think: string;
+  vs?: string;
+  opt?: string[];
+}
+
 // DB の questions + categories を結合したクイズ用の問題
 export interface QuizQuestion {
   id: string;
   source_ref: string | null;
   question_text: string;
+  code: string | null;
   options: string[];
   correct_index: number;
+  correct_indices: number[] | null;
+  question_type: "single" | "multi";
   explanation: string;
+  explanation_data: ExplanationData | null;
   initial_wrong_weight: number;
   category_id: string;
   category_name: string;
@@ -32,6 +45,7 @@ export interface Progress {
   last_answered_at: string | null;
   understanding_level: number;
   memo: string;
+  last_confidence: number | null; // 1=確信あり, 2=迷った, 3=勘
 }
 
 export function emptyProgress(questionId: string): Progress {
@@ -45,5 +59,6 @@ export function emptyProgress(questionId: string): Progress {
     last_answered_at: null,
     understanding_level: 0,
     memo: "",
+    last_confidence: null,
   };
 }

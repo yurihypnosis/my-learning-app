@@ -60,9 +60,13 @@ export interface Database {
           category_id: string;
           source_ref: string | null;
           question_text: string;
+          code: string | null;
           options: Json;
           correct_index: number;
+          correct_indices: Json | null;
+          question_type: string;
           explanation: string;
+          explanation_data: Json | null;
           initial_wrong_weight: number;
           is_active: boolean;
           created_at: string;
@@ -73,17 +77,25 @@ export interface Database {
           category_id: string;
           source_ref?: string | null;
           question_text: string;
+          code?: string | null;
           options: Json;
           correct_index: number;
+          correct_indices?: Json | null;
+          question_type?: string;
           explanation?: string;
+          explanation_data?: Json | null;
           initial_wrong_weight?: number;
           is_active?: boolean;
         };
         Update: {
           question_text?: string;
+          code?: string | null;
           options?: Json;
           correct_index?: number;
+          correct_indices?: Json | null;
+          question_type?: string;
           explanation?: string;
+          explanation_data?: Json | null;
           initial_wrong_weight?: number;
           is_active?: boolean;
         };
@@ -110,6 +122,7 @@ export interface Database {
           last_answered_at: string | null;
           understanding_level: number;
           memo: string;
+          last_confidence: number | null;
           created_at: string;
           updated_at: string;
         };
@@ -124,6 +137,7 @@ export interface Database {
           last_answered_at?: string | null;
           understanding_level?: number;
           memo?: string;
+          last_confidence?: number | null;
         };
         Update: {
           correct_count?: number;
@@ -134,6 +148,7 @@ export interface Database {
           last_answered_at?: string | null;
           understanding_level?: number;
           memo?: string;
+          last_confidence?: number | null;
         };
         Relationships: [
           {

@@ -6,6 +6,7 @@ import { createClient } from "@/lib/supabase/client";
 import {
   FLAGS,
   FLAG_COLORS,
+  type ExplanationData,
   type Progress,
   type QuizMode,
   type QuizQuestion,
@@ -23,6 +24,60 @@ import { buildCSV, downloadCSV } from "@/lib/quiz/csv";
 
 type Screen = "menu" | "quiz" | "done" | "analysis" | "export";
 type SessionResult = { correct: boolean; category: string; color: string };
+
+const CONFIDENCE_LABELS = ["確信あり", "迷った", "勘"] as const;
+const CONFIDENCE_COLORS = ["#16a34a", "#f59e0b", "#dc2626"] as const;
+
+function arraysEqual(a: number[], b: number[]): boolean {
+  return a.length === b.length && a.every((v, i) => v === b[i]);
+}
+
+function RichExplanation({ data }: { data: ExplanationData }) {
+  return (
+    <div className="text-[13px] leading-7 text-slate-300">
+      <p className="mb-1.5 font-bold text-slate-200">▶ 何を問われているか</p>
+      <p className="mb-3">{data.asked}</p>
+
+      {data.terms && data.terms.length > 0 && (
+        <>
+          <p className="mb-1.5 font-bold text-slate-200">▶ キーワード</p>
+          <div className="mb-3 flex flex-col gap-1.5">
+            {data.terms.map(([term, def], i) => (
+              <div key={i} className="rounded-lg bg-black/20 px-3 py-2">
+                <span className="font-bold text-sky-300">{term}</span>
+                <span className="ml-2 text-slate-400">{def}</span>
+              </div>
+            ))}
+          </div>
+        </>
+      )}
+
+      <p className="mb-1.5 font-bold text-slate-200">▶ 考え方</p>
+      <p className="mb-3">{data.think}</p>
+
+      {data.vs && (
+        <>
+          <p className="mb-1.5 font-bold text-slate-200">▶ 混同ポイント</p>
+          <p className="mb-3">{data.vs}</p>
+        </>
+      )}
+
+      {data.opt && data.opt.length > 0 && (
+        <>
+          <p className="mb-1.5 font-bold text-slate-200">▶ 選択肢の解説</p>
+          <div className="flex flex-col gap-1">
+            {data.opt.map((o, i) => (
+              <div key={i} className="flex gap-2">
+                <span className="shrink-0 font-bold text-slate-400">{"ABCD"[i]}.</span>
+                <span>{o}</span>
+              </div>
+            ))}
+          </div>
+        </>
+      )}
+    </div>
+  );
+}
 
 interface Props {
   userId: string;
@@ -52,9 +107,21 @@ export function LearningApp({
   );
   const [count, setCount] = useState(10);
   const [mode, setMode] = useState<QuizMode>("shuffle");
+  const [recallMode, setRecallMode] = useState(false);
   const [deck, setDeck] = useState<QuizQuestion[]>([]);
   const [idx, setIdx] = useState(0);
+
+  // 単一回答: picked = 選んだ選択肢インデックス
   const [picked, setPicked] = useState<number | null>(null);
+  // 複数回答: 選択中のインデックス集合
+  const [multiSelected, setMultiSelected] = useState<Set<number>>(new Set());
+  // 回答済みフラグ（single / multi 共通）
+  const [answered, setAnswered] = useState(false);
+  // 確信度: 1=確信あり, 2=迷った, 3=勘
+  const [confidence, setConfidence] = useState<number | null>(null);
+  // 想起モードで選択肢をまだ表示していない
+  const [choicesHidden, setChoicesHidden] = useState(false);
+
   const [sessionResults, setSessionResults] = useState<SessionResult[]>([]);
   const [memoText, setMemoText] = useState("");
   const [saving, setSaving] = useState(false);
@@ -62,7 +129,6 @@ export function LearningApp({
   const [onlyMemo, setOnlyMemo] = useState(true);
   const [copyMsg, setCopyMsg] = useState("");
 
-  // Date.now() はハイドレーション不一致を避けるためマウント後に確定
   useEffect(() => {
     setNow(Date.now());
   }, []);
@@ -86,6 +152,7 @@ export function LearningApp({
         last_answered_at: next.last_answered_at,
         understanding_level: next.understanding_level,
         memo: next.memo,
+        last_confidence: next.last_confidence,
       },
       { onConflict: "user_id,question_id" }
     );
@@ -104,30 +171,29 @@ export function LearningApp({
   );
 
   const startQuiz = () => {
-    const pool = buildDeck({
-      questions,
-      progressMap,
-      selectedCategoryIds: selCats,
-      count,
-      mode,
-      now,
-    });
+    const pool = buildDeck({ questions, progressMap, selectedCategoryIds: selCats, count, mode, now });
     if (!pool.length) return;
     setDeck(pool);
     setIdx(0);
     setPicked(null);
+    setMultiSelected(new Set());
+    setAnswered(false);
+    setConfidence(null);
+    setChoicesHidden(recallMode);
     setSessionResults([]);
     setMemoText(getProgress(progressMap, pool[0].id).memo);
     setScreen("quiz");
   };
 
-  const answer = (choiceIdx: number) => {
-    if (picked !== null) return;
-    setPicked(choiceIdx);
+  // 単一回答
+  const answerSingle = (choiceIdx: number) => {
+    if (answered) return;
     const q = deck[idx];
-    const correct = choiceIdx === q.correct_index;
+    const isCorrect = choiceIdx === q.correct_index;
+    setPicked(choiceIdx);
+    setAnswered(true);
     const cur = getProgress(progressMap, q.id);
-    const partial: Partial<Progress> = correct
+    const partial: Partial<Progress> = isCorrect
       ? {
           correct_count: cur.correct_count + 1,
           consecutive_correct: cur.consecutive_correct + 1,
@@ -144,9 +210,68 @@ export function LearningApp({
         };
     setSessionResults((r) => [
       ...r,
-      { correct, category: q.category_name, color: q.category_color },
+      { correct: isCorrect, category: q.category_name, color: q.category_color },
     ]);
     persist(q.id, partial);
+  };
+
+  // 複数回答の選択切り替え
+  const toggleMulti = (i: number) => {
+    if (answered) return;
+    setMultiSelected((prev) => {
+      const s = new Set(prev);
+      s.has(i) ? s.delete(i) : s.add(i);
+      return s;
+    });
+  };
+
+  // 複数回答の確定
+  const submitMulti = () => {
+    if (answered || multiSelected.size === 0) return;
+    const q = deck[idx];
+    const selected = Array.from(multiSelected).sort((a, b) => a - b);
+    const expected = [...(q.correct_indices ?? [q.correct_index])].sort((a, b) => a - b);
+    const isCorrect = arraysEqual(selected, expected);
+    setAnswered(true);
+    const cur = getProgress(progressMap, q.id);
+    const partial: Partial<Progress> = isCorrect
+      ? {
+          correct_count: cur.correct_count + 1,
+          consecutive_correct: cur.consecutive_correct + 1,
+          last_is_correct: true,
+          last_answered_at: new Date().toISOString(),
+        }
+      : {
+          wrong_count: cur.wrong_count + 1,
+          consecutive_correct: 0,
+          last_is_correct: false,
+          last_answered_at: new Date().toISOString(),
+        };
+    setSessionResults((r) => [
+      ...r,
+      { correct: isCorrect, category: q.category_name, color: q.category_color },
+    ]);
+    persist(q.id, partial);
+  };
+
+  // 確信度を設定（まぐれ当たり = 勘で正解 → consecutive_correct リセット）
+  const handleConfidence = (level: number) => {
+    setConfidence(level);
+    const q = deck[idx];
+    const cur = getProgress(progressMap, q.id);
+    const isCorrect =
+      q.question_type === "multi"
+        ? arraysEqual(
+            Array.from(multiSelected).sort((a, b) => a - b),
+            [...(q.correct_indices ?? [q.correct_index])].sort((a, b) => a - b)
+          )
+        : picked === q.correct_index;
+    if (isCorrect && level === 3) {
+      // まぐれ当たり → スリープ対象外に戻す
+      persist(q.id, { consecutive_correct: 0, last_confidence: level });
+    } else {
+      persist(q.id, { last_confidence: level });
+    }
   };
 
   const setFlag = (level: number) => {
@@ -160,9 +285,14 @@ export function LearningApp({
     if (idx + 1 >= deck.length) {
       setScreen("done");
     } else {
-      const nq = deck[idx + 1];
-      setIdx(idx + 1);
+      const ni = idx + 1;
+      const nq = deck[ni];
+      setIdx(ni);
       setPicked(null);
+      setMultiSelected(new Set());
+      setAnswered(false);
+      setConfidence(null);
+      setChoicesHidden(recallMode);
       setMemoText(getProgress(progressMap, nq.id).memo);
     }
   };
@@ -171,11 +301,8 @@ export function LearningApp({
     router.push(slug ? `/?subject=${slug}` : "/");
   };
 
-  // ============ LOADING ============
   if (now === 0) {
-    return (
-      <div className="flex justify-center pt-32 text-sm text-muted">読み込み中…</div>
-    );
+    return <div className="flex justify-center pt-32 text-sm text-muted">読み込み中…</div>;
   }
 
   const page = "flex flex-col items-center px-3.5 pb-24 pt-5";
@@ -306,6 +433,24 @@ export function LearningApp({
               : "選択した分野からランダムに出題"}
             ｜3回連続正解は2週間、正解かつ完璧は1週間出題されません
           </p>
+
+          {/* 想起モード */}
+          <div className="mb-4 flex items-center justify-between rounded-xl bg-card2 px-4 py-3">
+            <div>
+              <p className="text-sm font-bold text-slate-300">🧠 想起モード</p>
+              <p className="text-[11px] text-muted2">選択肢を隠して先に考える（検索練習効果）</p>
+            </div>
+            <button
+              onClick={() => setRecallMode((v) => !v)}
+              className="relative inline-flex h-6 w-11 items-center rounded-full transition-colors"
+              style={{ background: recallMode ? "#2563eb" : "#2a3648" }}
+            >
+              <span
+                className="inline-block h-4 w-4 rounded-full bg-white shadow transition-transform"
+                style={{ transform: recallMode ? "translateX(22px)" : "translateX(2px)" }}
+              />
+            </button>
+          </div>
 
           <button
             onClick={startQuiz}
@@ -442,7 +587,7 @@ export function LearningApp({
         const acc = practiced ? Math.round((cc / (w + cc)) * 100) : null;
         return { ...c, w, cc, acc, n: qs.length };
       })
-      .sort((a, b) => (a.acc ?? 0) - (b.acc ?? 0));
+      .sort((a, b) => (a.acc ?? 101) - (b.acc ?? 101));
 
     const worst = [...questions]
       .sort((a, b) => {
@@ -482,7 +627,12 @@ export function LearningApp({
                   className="h-full rounded"
                   style={{
                     width: `${s.acc ?? 0}%`,
-                    background: (s.acc ?? 0) >= 70 ? "#16a34a" : (s.acc ?? 0) >= 40 ? "#f59e0b" : "#dc2626",
+                    background:
+                      (s.acc ?? 0) >= 70
+                        ? "#16a34a"
+                        : (s.acc ?? 0) >= 40
+                          ? "#f59e0b"
+                          : "#dc2626",
                   }}
                 />
               </div>
@@ -561,10 +711,7 @@ export function LearningApp({
           <p className="mb-5 text-muted">正答率 {pct}%</p>
           <div className="mb-6 text-left">
             {Object.entries(breakdown).map(([d, v]) => (
-              <div
-                key={d}
-                className="flex justify-between border-b border-card2 py-1.5"
-              >
+              <div key={d} className="flex justify-between border-b border-card2 py-1.5">
                 <span className="text-sm font-bold" style={{ color: v.color }}>
                   {d}
                 </span>
@@ -597,10 +744,39 @@ export function LearningApp({
   // ============ QUIZ ============
   const q = deck[idx];
   const p = getProgress(progressMap, q.id);
-  const correct = picked === q.correct_index;
+
+  const isCorrect =
+    q.question_type === "multi"
+      ? answered &&
+        arraysEqual(
+          Array.from(multiSelected).sort((a, b) => a - b),
+          [...(q.correct_indices ?? [q.correct_index])].sort((a, b) => a - b)
+        )
+      : picked === q.correct_index;
+
+  const correctSet = new Set(q.correct_indices ?? [q.correct_index]);
+
+  const getOptionStyle = (i: number) => {
+    if (!answered) {
+      // 未回答
+      if (q.question_type === "multi" && multiSelected.has(i)) {
+        return { bg: "#1e3a5f", bd: "#3b82f6", fg: "#93c5fd" };
+      }
+      return { bg: "#0f1825", bd: "#2a3648", fg: "#cbd5e1" };
+    }
+    // 回答済み
+    const isCorrectOption = correctSet.has(i);
+    const wasSelected = q.question_type === "multi" ? multiSelected.has(i) : i === picked;
+
+    if (isCorrectOption && wasSelected) return { bg: "#14532d", bd: "#16a34a", fg: "#bbf7d0" };
+    if (isCorrectOption && !wasSelected) return { bg: "#1a3a1a", bd: "#65a30d", fg: "#d9f99d" }; // missed correct (multi)
+    if (!isCorrectOption && wasSelected) return { bg: "#7f1d1d", bd: "#dc2626", fg: "#fecaca" };
+    return { bg: "#0f1825", bd: "#2a3648", fg: "#64748b" };
+  };
 
   return (
     <div className={page}>
+      {/* プログレスバー */}
       <div className="mb-3 w-full max-w-[560px]">
         <div className="mb-1.5 flex justify-between">
           <span className="text-sm font-semibold text-muted">
@@ -617,6 +793,7 @@ export function LearningApp({
       </div>
 
       <div className={card}>
+        {/* カテゴリ + 統計 */}
         <div className="mb-3.5 flex items-center justify-between">
           <span
             className="rounded-2xl px-3 py-1 text-[11px] font-bold"
@@ -628,64 +805,133 @@ export function LearningApp({
           >
             {q.category_name}
           </span>
-          <span className="text-[11px] text-muted2">
-            誤答 {totalWrong(q, p)}回 / 連続正解 {p.consecutive_correct}
-          </span>
+          <div className="flex items-center gap-2">
+            {q.question_type === "multi" && (
+              <span className="rounded-md bg-blue-900/40 px-2 py-0.5 text-[10px] font-bold text-blue-300">
+                複数選択
+              </span>
+            )}
+            <span className="text-[11px] text-muted2">
+              誤答 {totalWrong(q, p)}回 / 連続正解 {p.consecutive_correct}
+            </span>
+          </div>
         </div>
 
+        {/* 問題文 */}
         <p className="mb-4 text-[15px] font-bold leading-8 text-slate-200">{q.question_text}</p>
 
-        {q.options.map((choice, i) => {
-          let bg = "#0f1825";
-          let bd = "#2a3648";
-          let fg = "#cbd5e1";
-          if (picked !== null) {
-            if (i === q.correct_index) {
-              bg = "#14532d";
-              bd = "#16a34a";
-              fg = "#bbf7d0";
-            } else if (i === picked) {
-              bg = "#7f1d1d";
-              bd = "#dc2626";
-              fg = "#fecaca";
-            } else {
-              fg = "#64748b";
-            }
-          }
-          return (
-            <button
-              key={i}
-              onClick={() => answer(i)}
-              disabled={picked !== null}
-              className="mb-2 block w-full rounded-xl border-2 px-3.5 py-3 text-left"
-              style={{ background: bg, borderColor: bd, cursor: picked === null ? "pointer" : "default" }}
-            >
-              <span className="text-[13px] leading-relaxed" style={{ color: fg }}>
-                <b className="mr-2">{"ABCD"[i]}.</b>
-                {choice}
-              </span>
-            </button>
-          );
-        })}
+        {/* コードブロック */}
+        {q.code && (
+          <pre className="mb-4 overflow-x-auto rounded-xl bg-black/40 px-4 py-3 font-mono text-[12px] leading-6 text-slate-300">
+            <code>{q.code}</code>
+          </pre>
+        )}
 
-        {picked !== null && (
+        {/* 想起モード: 選択肢を隠す */}
+        {choicesHidden ? (
+          <div className="mb-4 flex flex-col items-center gap-3 rounded-xl bg-card2 py-6">
+            <p className="text-sm font-bold text-slate-300">🧠 まず自分で考えてみよう</p>
+            <p className="text-xs text-muted2">答えが浮かんだら選択肢を表示する</p>
+            <button
+              onClick={() => setChoicesHidden(false)}
+              className="rounded-xl bg-gradient-to-br from-primary to-primary2 px-6 py-2.5 text-sm font-bold text-white"
+            >
+              選択肢を表示する
+            </button>
+          </div>
+        ) : (
+          <>
+            {/* 選択肢 */}
+            {q.options.map((choice, i) => {
+              const { bg, bd, fg } = getOptionStyle(i);
+              return (
+                <button
+                  key={i}
+                  onClick={() =>
+                    q.question_type === "multi" ? toggleMulti(i) : answerSingle(i)
+                  }
+                  disabled={answered}
+                  className="mb-2 block w-full rounded-xl border-2 px-3.5 py-3 text-left"
+                  style={{
+                    background: bg,
+                    borderColor: bd,
+                    cursor: answered ? "default" : "pointer",
+                  }}
+                >
+                  <span className="text-[13px] leading-relaxed" style={{ color: fg }}>
+                    <b className="mr-2">{"ABCD"[i]}.</b>
+                    {choice}
+                  </span>
+                </button>
+              );
+            })}
+
+            {/* 複数選択の回答ボタン */}
+            {q.question_type === "multi" && !answered && (
+              <button
+                onClick={submitMulti}
+                disabled={multiSelected.size === 0}
+                className="mb-2 w-full rounded-xl bg-gradient-to-br from-blue-600 to-blue-700 py-3 text-sm font-bold text-white disabled:from-slate-700 disabled:to-slate-700"
+              >
+                回答する（{multiSelected.size}個選択中）
+              </button>
+            )}
+          </>
+        )}
+
+        {/* 回答後: 解説 + 確信度 + メモ + 次へ */}
+        {answered && (
           <>
             <div
               className="my-3.5 rounded-xl px-4 py-3.5"
               style={{
-                background: correct ? "#14532d33" : "#7f1d1d33",
-                border: `1px solid ${correct ? "#16a34a" : "#dc2626"}44`,
+                background: isCorrect ? "#14532d33" : "#7f1d1d33",
+                border: `1px solid ${isCorrect ? "#16a34a" : "#dc2626"}44`,
               }}
             >
               <p
-                className="mb-2 text-sm font-extrabold"
-                style={{ color: correct ? "#86efac" : "#fca5a5" }}
+                className="mb-3 text-sm font-extrabold"
+                style={{ color: isCorrect ? "#86efac" : "#fca5a5" }}
               >
-                {correct ? "✓ 正解！" : "✗ 不正解"}
+                {isCorrect ? "✓ 正解！" : "✗ 不正解"}
               </p>
-              <p className="text-[13px] leading-8 text-slate-300">{q.explanation}</p>
+              {q.explanation_data ? (
+                <RichExplanation data={q.explanation_data} />
+              ) : (
+                <p className="text-[13px] leading-8 text-slate-300">{q.explanation}</p>
+              )}
             </div>
 
+            {/* 確信度ボタン */}
+            <p className="mb-1.5 text-xs font-bold text-slate-300">確信度</p>
+            <div className="mb-3.5 flex gap-1.5">
+              {CONFIDENCE_LABELS.map((label, i) => {
+                const level = i + 1;
+                const on = confidence === level;
+                const color = CONFIDENCE_COLORS[i];
+                return (
+                  <button
+                    key={level}
+                    onClick={() => handleConfidence(level)}
+                    className="flex-1 rounded-xl border-2 px-0.5 py-2 text-[11px] font-bold"
+                    style={{
+                      borderColor: on ? color : "#2a3648",
+                      background: on ? color + "26" : "transparent",
+                      color: on ? color : "#64748b",
+                    }}
+                  >
+                    {label}
+                  </button>
+                );
+              })}
+            </div>
+            {confidence === 3 && isCorrect && (
+              <p className="mb-2.5 text-center text-[11px] text-amber-400">
+                ⚠ まぐれ当たり — 連続正解をリセットしました
+              </p>
+            )}
+
+            {/* 理解度フラグ */}
             <p className="mb-1.5 text-xs font-bold text-slate-300">理解度フラグ</p>
             <div className="mb-3.5 flex gap-1.5">
               {FLAGS.slice(1).map((f, i) => {
@@ -708,6 +954,7 @@ export function LearningApp({
               })}
             </div>
 
+            {/* メモ */}
             <p className="mb-1.5 text-xs font-bold text-slate-300">メモ</p>
             <textarea
               value={memoText}

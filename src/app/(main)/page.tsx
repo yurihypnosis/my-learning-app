@@ -1,6 +1,6 @@
 import { createServerSupabaseClient } from "@/lib/supabase/server";
 import type { ProgressMap } from "@/lib/quiz/selection";
-import type { Progress, QuizQuestion } from "@/lib/quiz/types";
+import type { ExplanationData, Progress, QuizQuestion } from "@/lib/quiz/types";
 import { LearningApp } from "./learning-app";
 
 export const dynamic = "force-dynamic";
@@ -59,9 +59,13 @@ export default async function HomePage({
       id: q.id,
       source_ref: q.source_ref,
       question_text: q.question_text,
+      code: (q.code as string | null) ?? null,
       options: (q.options as string[]) ?? [],
-      correct_index: q.correct_index,
-      explanation: q.explanation,
+      correct_index: q.correct_index ?? 0,
+      correct_indices: (q.correct_indices as number[] | null) ?? null,
+      question_type: ((q.question_type as string) === "multi" ? "multi" : "single") as "single" | "multi",
+      explanation: q.explanation ?? "",
+      explanation_data: (q.explanation_data as ExplanationData | null) ?? null,
       initial_wrong_weight: q.initial_wrong_weight,
       category_id: q.category_id,
       category_name: cat?.name ?? "未分類",
@@ -81,6 +85,7 @@ export default async function HomePage({
       last_answered_at: p.last_answered_at,
       understanding_level: p.understanding_level,
       memo: p.memo,
+      last_confidence: (p.last_confidence as number | null) ?? null,
     };
     progressMap[p.question_id] = prog;
   }
