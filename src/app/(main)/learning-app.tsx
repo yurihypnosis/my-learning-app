@@ -21,8 +21,16 @@ import {
   type ProgressMap,
 } from "@/lib/quiz/selection";
 import { buildCSV, downloadCSV } from "@/lib/quiz/csv";
+import {
+  type UserGoal,
+  loadGoal,
+  saveGoal,
+  calcMasteryStats,
+  calcDailyRec,
+  calcCategoryMastery,
+} from "@/lib/quiz/stats";
 
-type Screen = "menu" | "quiz" | "done" | "analysis" | "export";
+type Screen = "menu" | "quiz" | "done" | "analysis" | "export" | "goal";
 type SessionResult = { correct: boolean; category: string; color: string };
 
 const CONFIDENCE_LABELS = ["確信あり", "迷った", "勘"] as const;
@@ -129,9 +137,22 @@ export function LearningApp({
   const [onlyMemo, setOnlyMemo] = useState(true);
   const [copyMsg, setCopyMsg] = useState("");
 
+  // 目標設定
+  const [goal, setGoal] = useState<UserGoal | null>(null);
+  const [goalDraft, setGoalDraft] = useState<{ examDate: string; targetName: string }>({
+    examDate: "",
+    targetName: "",
+  });
+  // セッション開始時の合格確率（セッション後の変化量計算用）
+  const [sessionStartPassProb, setSessionStartPassProb] = useState<number | null>(null);
+
   useEffect(() => {
-    setNow(Date.now());
-  }, []);
+    const ts = Date.now();
+    setNow(ts);
+    const g = loadGoal(currentSubjectSlug);
+    setGoal(g);
+    if (g) setGoalDraft({ examDate: g.examDate, targetName: g.targetName });
+  }, [currentSubjectSlug]);
 
   const supabase = useMemo(() => createClient(), []);
 
@@ -173,6 +194,8 @@ export function LearningApp({
   const startQuiz = () => {
     const pool = buildDeck({ questions, progressMap, selectedCategoryIds: selCats, count, mode, now });
     if (!pool.length) return;
+    // セッション開始前の合格確率を記録（完了後のデルタ表示用）
+    setSessionStartPassProb(calcMasteryStats(questions, progressMap).passProb);
     setDeck(pool);
     setIdx(0);
     setPicked(null);
@@ -308,12 +331,79 @@ export function LearningApp({
   const page = "flex flex-col items-center px-3.5 pb-24 pt-5";
   const card = "w-full max-w-[560px] rounded-2xl bg-card p-5 shadow-2xl sm:p-6";
 
+  // ============ GOAL SCREEN ============
+  if (screen === "goal") {
+    const handleSaveGoal = () => {
+      if (!goalDraft.examDate) return;
+      const g: UserGoal = { examDate: goalDraft.examDate, targetName: goalDraft.targetName };
+      saveGoal(currentSubjectSlug, g);
+      setGoal(g);
+      setScreen("menu");
+    };
+    const handleClearGoal = () => {
+      saveGoal(currentSubjectSlug, null);
+      setGoal(null);
+      setGoalDraft({ examDate: "", targetName: "" });
+      setScreen("menu");
+    };
+
+    return (
+      <div className={page}>
+        <div className={card}>
+          <h2 className="mb-4 text-lg font-extrabold text-slate-100">🎯 目標設定</h2>
+
+          <p className="mb-1.5 text-sm font-bold text-slate-300">試験日</p>
+          <input
+            type="date"
+            value={goalDraft.examDate}
+            onChange={(e) => setGoalDraft((d) => ({ ...d, examDate: e.target.value }))}
+            className="mb-4 w-full rounded-xl border border-border bg-card2 px-4 py-3 text-sm text-slate-200 outline-none focus:border-primary2"
+          />
+
+          <p className="mb-1.5 text-sm font-bold text-slate-300">試験名・目標メモ（任意）</p>
+          <input
+            type="text"
+            value={goalDraft.targetName}
+            onChange={(e) => setGoalDraft((d) => ({ ...d, targetName: e.target.value }))}
+            placeholder={`例: ${subjectName} 合格`}
+            className="mb-5 w-full rounded-xl border border-border bg-card2 px-4 py-3 text-sm text-slate-200 outline-none focus:border-primary2"
+          />
+
+          <button
+            onClick={handleSaveGoal}
+            disabled={!goalDraft.examDate}
+            className="mb-2 w-full rounded-xl bg-gradient-to-br from-primary to-primary2 py-3.5 text-sm font-bold text-white disabled:from-slate-700 disabled:to-slate-700"
+          >
+            保存する
+          </button>
+          {goal && (
+            <button
+              onClick={handleClearGoal}
+              className="mb-2 w-full rounded-xl bg-red-900/40 py-2.5 text-sm font-bold text-red-300"
+            >
+              目標を削除する
+            </button>
+          )}
+          <button
+            onClick={() => setScreen("menu")}
+            className="w-full rounded-xl bg-card2 py-2.5 text-sm font-bold text-muted"
+          >
+            キャンセル
+          </button>
+        </div>
+      </div>
+    );
+  }
+
   // ============ MENU ============
   if (screen === "menu") {
-    const answered = questions.filter((q) => {
+    const answeredCount = questions.filter((q) => {
       const p = getProgress(progressMap, q.id);
       return p.correct_count + p.wrong_count > 0;
     }).length;
+    // 目標逆算
+    const stats = calcMasteryStats(questions, progressMap);
+    const dailyRec = calcDailyRec(questions, progressMap, now, goal?.examDate ?? null);
 
     const countOptions = [5, 10, 20, eligible.length];
 
@@ -336,9 +426,99 @@ export function LearningApp({
               </select>
             )}
           </div>
-          <p className="mb-4 text-center text-xs text-muted2">
-            全{questions.length}問 ｜ 演習済み {answered}問 ｜ 休眠中 {restingCount}問
+          <p className="mb-3 text-center text-xs text-muted2">
+            全{questions.length}問 ｜ 演習済み {answeredCount}問 ｜ 休眠中 {restingCount}問
           </p>
+
+          {/* 🎯 目標・合格確率カード */}
+          {goal ? (
+            <div className="mb-4 rounded-xl bg-card2 px-4 py-3.5">
+              <div className="mb-2.5 flex items-start justify-between">
+                <div>
+                  <p className="text-[11px] font-bold text-sky-400">
+                    🎯 {goal.targetName || subjectName}
+                  </p>
+                  <p className="mt-0.5 text-xs text-muted">
+                    残り{dailyRec.daysRemaining}日（
+                    {new Date(goal.examDate).toLocaleDateString("ja-JP", {
+                      month: "short",
+                      day: "numeric",
+                    })}
+                    ）
+                  </p>
+                </div>
+                <button
+                  onClick={() => setScreen("goal")}
+                  className="rounded-lg bg-black/20 px-2.5 py-1 text-[10px] font-bold text-muted2"
+                >
+                  変更
+                </button>
+              </div>
+              {/* 合格確率バー */}
+              <div className="mb-1.5 flex items-center justify-between">
+                <span className="text-[11px] font-bold text-slate-400">予測合格確率</span>
+                <span
+                  className="text-lg font-extrabold"
+                  style={{
+                    color:
+                      stats.passProb >= 70
+                        ? "#86efac"
+                        : stats.passProb >= 50
+                          ? "#fcd34d"
+                          : "#f87171",
+                  }}
+                >
+                  {stats.passProb}%
+                </span>
+              </div>
+              <div className="mb-2.5 h-2.5 overflow-hidden rounded-full bg-black/30">
+                <div
+                  className="h-full rounded-full transition-all"
+                  style={{
+                    width: `${stats.passProb}%`,
+                    background:
+                      stats.passProb >= 70
+                        ? "linear-gradient(to right, #16a34a, #86efac)"
+                        : stats.passProb >= 50
+                          ? "linear-gradient(to right, #d97706, #fcd34d)"
+                          : "linear-gradient(to right, #dc2626, #f87171)",
+                  }}
+                />
+              </div>
+              {/* 今日のタスク推薦 */}
+              <div className="rounded-lg bg-black/20 px-3 py-2">
+                <p className="mb-1 text-[10px] font-bold text-slate-400">今日のおすすめ</p>
+                <p className="text-[12px] text-slate-200">
+                  {dailyRec.newCount > 0 && (
+                    <span>📗 新規 <b>{dailyRec.newCount}</b>問</span>
+                  )}
+                  {dailyRec.newCount > 0 && dailyRec.reviewCount > 0 && (
+                    <span className="mx-1.5 text-muted2">+</span>
+                  )}
+                  {dailyRec.reviewCount > 0 && (
+                    <span>🔄 復習 <b>{dailyRec.reviewCount}</b>問</span>
+                  )}
+                  {dailyRec.newCount === 0 && dailyRec.reviewCount === 0 && (
+                    <span className="text-emerald-400">✓ 今日のタスクは完了！</span>
+                  )}
+                </p>
+                <p className="mt-0.5 text-[10px] text-muted2">
+                  未習得{dailyRec.totalNew}問 ÷ 残り{dailyRec.daysRemaining}日 ＝ 1日{dailyRec.dailyNorm}問ペース
+                </p>
+              </div>
+            </div>
+          ) : (
+            <button
+              onClick={() => setScreen("goal")}
+              className="mb-4 flex w-full items-center gap-3 rounded-xl border border-dashed border-slate-600 px-4 py-3.5 text-left"
+            >
+              <span className="text-2xl">🎯</span>
+              <div>
+                <p className="text-sm font-bold text-slate-300">目標日を設定する</p>
+                <p className="text-[11px] text-muted2">試験日から今日のノルマと合格確率を逆算</p>
+              </div>
+            </button>
+          )}
 
           {/* 分野選択 */}
           <p className="mb-2 text-sm font-bold text-slate-300">分野（タップで選択/解除）</p>
@@ -604,10 +784,97 @@ export function LearningApp({
       flagDist[getProgress(progressMap, q.id).understanding_level]++;
     });
 
+    // 合格確率 + スキルツリー
+    const masteryStats = calcMasteryStats(questions, progressMap);
+    const catMastery = calcCategoryMastery(categories, questions, progressMap);
+
     return (
       <div className={page}>
         <div className={card}>
           <h2 className="mb-4 text-lg font-extrabold text-slate-100">📊 苦手傾向分析</h2>
+
+          {/* 予測合格確率カード */}
+          <div className="mb-5 rounded-xl bg-card2 px-4 py-4">
+            <div className="mb-3 flex items-center justify-between">
+              <p className="text-sm font-bold text-slate-300">🎯 予測合格確率</p>
+              <span
+                className="text-2xl font-extrabold"
+                style={{
+                  color:
+                    masteryStats.passProb >= 70
+                      ? "#86efac"
+                      : masteryStats.passProb >= 50
+                        ? "#fcd34d"
+                        : "#f87171",
+                }}
+              >
+                {masteryStats.passProb}%
+              </span>
+            </div>
+            <div className="mb-3 h-3 overflow-hidden rounded-full bg-black/30">
+              <div
+                className="h-full rounded-full transition-all"
+                style={{
+                  width: `${masteryStats.passProb}%`,
+                  background:
+                    masteryStats.passProb >= 70
+                      ? "linear-gradient(to right, #16a34a, #86efac)"
+                      : masteryStats.passProb >= 50
+                        ? "linear-gradient(to right, #d97706, #fcd34d)"
+                        : "linear-gradient(to right, #dc2626, #f87171)",
+                }}
+              />
+            </div>
+            <div className="flex justify-between text-[11px] text-muted2">
+              <span>演習済み {masteryStats.attempted}/{questions.length}問</span>
+              <span>習得済み {masteryStats.masteredCount}問</span>
+              <span>弱点 {masteryStats.weakCount}問</span>
+            </div>
+          </div>
+
+          {/* スキルツリー：分野別習得マップ */}
+          <p className="mb-2.5 text-sm font-bold text-slate-300">🗺 スキルツリー（分野別習得率）</p>
+          <div className="mb-5 flex flex-col gap-2">
+            {catMastery.map((cm) => {
+              const pct = Math.round(cm.mastery * 100);
+              return (
+                <div key={cm.id} className="rounded-xl bg-card2 p-3">
+                  <div className="mb-1.5 flex items-center justify-between">
+                    <div className="flex items-center gap-2">
+                      <div
+                        className="h-2.5 w-2.5 rounded-full"
+                        style={{ background: cm.color }}
+                      />
+                      <span className="text-[12px] font-bold text-slate-300">{cm.name}</span>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <span className="text-[10px] text-muted2">
+                        {cm.masteredCount}/{cm.total}習得
+                      </span>
+                      <span
+                        className="min-w-[36px] text-right text-[12px] font-extrabold"
+                        style={{
+                          color: pct >= 70 ? "#86efac" : pct >= 40 ? "#fcd34d" : pct === 0 ? "#475569" : "#f87171",
+                        }}
+                      >
+                        {pct === 0 ? "未着" : `${pct}%`}
+                      </span>
+                    </div>
+                  </div>
+                  <div className="h-1.5 overflow-hidden rounded-full bg-black/30">
+                    <div
+                      className="h-full rounded-full"
+                      style={{
+                        width: `${pct}%`,
+                        background: cm.color,
+                        opacity: pct === 0 ? 0.2 : 1,
+                      }}
+                    />
+                  </div>
+                </div>
+              );
+            })}
+          </div>
 
           <p className="mb-2.5 text-sm font-bold text-slate-300">
             分野別 正答率（累計・模試の誤答含む）
@@ -700,6 +967,9 @@ export function LearningApp({
         breakdown[r.category] = { ok: 0, ng: 0, color: r.color };
       r.correct ? breakdown[r.category].ok++ : breakdown[r.category].ng++;
     });
+    const currentPassProb = calcMasteryStats(questions, progressMap).passProb;
+    const probDelta =
+      sessionStartPassProb !== null ? currentPassProb - sessionStartPassProb : null;
 
     return (
       <div className={page}>
@@ -708,7 +978,46 @@ export function LearningApp({
           <h2 className="mb-1.5 text-2xl font-extrabold text-slate-100">
             {ok} / {sessionResults.length} 正解
           </h2>
-          <p className="mb-5 text-muted">正答率 {pct}%</p>
+          <p className="mb-4 text-muted">正答率 {pct}%</p>
+
+          {/* 合格確率の変化 */}
+          {probDelta !== null && (
+            <div
+              className="mx-auto mb-5 max-w-xs rounded-xl px-5 py-3"
+              style={{
+                background: probDelta > 0 ? "#14532d33" : probDelta < 0 ? "#7f1d1d33" : "#1e2d3d",
+                border: `1px solid ${probDelta > 0 ? "#16a34a44" : probDelta < 0 ? "#dc262644" : "#2a3648"}`,
+              }}
+            >
+              <p className="mb-1 text-[11px] font-bold text-slate-400">予測合格確率</p>
+              <p className="text-xl font-extrabold">
+                <span className="text-slate-400">{sessionStartPassProb}%</span>
+                <span className="mx-2 text-slate-500">→</span>
+                <span
+                  style={{
+                    color:
+                      currentPassProb >= 70
+                        ? "#86efac"
+                        : currentPassProb >= 50
+                          ? "#fcd34d"
+                          : "#f87171",
+                  }}
+                >
+                  {currentPassProb}%
+                </span>
+                {probDelta !== 0 && (
+                  <span
+                    className="ml-2 text-sm font-bold"
+                    style={{ color: probDelta > 0 ? "#86efac" : "#f87171" }}
+                  >
+                    ({probDelta > 0 ? "+" : ""}
+                    {probDelta}%)
+                  </span>
+                )}
+              </p>
+            </div>
+          )}
+
           <div className="mb-6 text-left">
             {Object.entries(breakdown).map(([d, v]) => (
               <div key={d} className="flex justify-between border-b border-card2 py-1.5">
