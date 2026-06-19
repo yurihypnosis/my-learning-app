@@ -1,16 +1,16 @@
 @import "tailwindcss";
 
 @theme {
-  --color-bg: #0c1220;
-  --color-bg2: #162032;
-  --color-card: #15202e;
-  --color-card2: #0f1825;
-  --color-border: #2a3648;
-  --color-fg: #e2e8f0;
-  --color-muted: #94a3b8;
-  --color-muted2: #64748b;
-  --color-primary: #2563eb;
-  --color-primary2: #3b82f6;
+  --color-bg:      #0a0a0a;
+  --color-card:    #111111;
+  --color-card2:   #181818;
+  --color-border:  #222222;
+  --color-border2: #333333;
+  --color-fg:      #f0f0f0;
+  --color-muted:   #888888;
+  --color-muted2:  #444444;
+  --color-primary: #3b82f6;
+  --color-primary2: #60a5fa;
   --font-sans: "Noto Sans JP", ui-sans-serif, system-ui, sans-serif;
 }
 
@@ -19,14 +19,18 @@ html {
 }
 
 body {
-  background: linear-gradient(160deg, #0c1220, #162032);
-  background-attachment: fixed;
+  background: var(--color-bg);
   min-height: 100vh;
   font-family: var(--font-sans);
   color: var(--color-fg);
 }
 
-/* スクロールバーをダークに */
 * {
-  scrollbar-color: #2a3648 transparent;
+  scrollbar-color: #2a2a2a transparent;
+  scrollbar-width: thin;
+}
+
+input[type="date"]::-webkit-calendar-picker-indicator {
+  filter: invert(0.4);
+  cursor: pointer;
 }

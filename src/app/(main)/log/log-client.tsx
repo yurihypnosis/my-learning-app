@@ -12,14 +12,14 @@ export interface AnswerEvent {
 }
 
 interface DayEntry {
-  dateKey: string;       // YYYY-MM-DD (JST)
-  label: string;         // 今日 / 昨日 / MM/DD (曜)
+  dateKey: string;
+  label: string;
   total: number;
   correct: number;
   categories: { name: string; color: string; count: number }[];
   subjects: { slug: string; count: number }[];
-  firstAt: string;       // 最初の回答時刻 HH:mm
-  lastAt: string;        // 最後の回答時刻 HH:mm
+  firstAt: string;
+  lastAt: string;
 }
 
 const SUBJECT_LABELS: Record<string, string> = {
@@ -32,7 +32,6 @@ const WEEKDAYS = ["日", "月", "火", "水", "木", "金", "土"];
 
 function toJSTDate(iso: string): Date {
   const d = new Date(iso);
-  // UTC+9
   return new Date(d.getTime() + 9 * 60 * 60 * 1000);
 }
 
@@ -61,12 +60,9 @@ function buildDays(events: AnswerEvent[], todayKey: string, yesterdayKey: string
       const dow = WEEKDAYS[d.getDay()];
       const mm = d.getMonth() + 1;
       const dd = d.getDate();
-
       const label =
-        key === todayKey
-          ? `今日 (${mm}/${dd}・${dow})`
-          : key === yesterdayKey
-            ? `昨日 (${mm}/${dd}・${dow})`
+        key === todayKey ? `今日 ${mm}/${dd}（${dow}）`
+          : key === yesterdayKey ? `昨日 ${mm}/${dd}（${dow}）`
             : `${mm}/${dd}（${dow}）`;
 
       const catMap = new Map<string, { color: string; count: number }>();
@@ -76,15 +72,11 @@ function buildDays(events: AnswerEvent[], todayKey: string, yesterdayKey: string
       for (const ev of evs) {
         if (ev.is_correct) correct++;
         const prev = catMap.get(ev.category_name);
-        catMap.set(ev.category_name, {
-          color: ev.category_color,
-          count: (prev?.count ?? 0) + 1,
-        });
+        catMap.set(ev.category_name, { color: ev.category_color, count: (prev?.count ?? 0) + 1 });
         subMap.set(ev.subject_slug, (subMap.get(ev.subject_slug) ?? 0) + 1);
       }
 
       const sorted = evs.map((e) => e.answered_at).sort();
-
       return {
         dateKey: key,
         label,
@@ -111,7 +103,6 @@ function calcStreak(days: DayEntry[], todayKey: string): number {
     return set.has(y) ? y : null;
   })();
   if (!start) return 0;
-
   let streak = 0;
   const cur = new Date(start + "T00:00:00+09:00");
   while (set.has(cur.toISOString().slice(0, 10))) {
@@ -127,38 +118,31 @@ function WeeklyBar({ days, todayKey }: { days: DayEntry[]; todayKey: string }) {
     const d = new Date(todayKey + "T00:00:00+09:00");
     d.setDate(d.getDate() - (6 - i));
     const key = d.toISOString().slice(0, 10);
-    const dow = WEEKDAYS[d.getDay()];
-    const mm = d.getMonth() + 1;
-    const dd = d.getDate();
-    return { key, label: `${mm}/${dd}`, dow, count: dayMap.get(key) ?? 0 };
+    return { key, dow: WEEKDAYS[d.getDay()], count: dayMap.get(key) ?? 0 };
   });
   const max = Math.max(...bars.map((b) => b.count), 1);
 
   return (
-    <div className="flex items-end justify-between gap-1">
+    <div className="flex h-16 items-end gap-1">
       {bars.map((b) => {
         const isToday = b.key === todayKey;
-        const pct = (b.count / max) * 100;
+        const pct = b.count > 0 ? Math.max((b.count / max) * 100, 8) : 0;
         return (
           <div key={b.key} className="flex flex-1 flex-col items-center gap-1">
-            <span className="text-[9px] text-muted2">{b.count > 0 ? b.count : ""}</span>
-            <div className="w-full overflow-hidden rounded-t" style={{ height: 40 }}>
+            <span className="text-[9px] text-[#333]">{b.count > 0 ? b.count : ""}</span>
+            <div className="flex w-full flex-1 items-end">
               <div
-                className="w-full rounded-t transition-all"
+                className="w-full rounded-sm transition-all"
                 style={{
-                  height: `${Math.max(pct, b.count > 0 ? 8 : 0)}%`,
-                  background: isToday
-                    ? "linear-gradient(to top, #2563eb, #60a5fa)"
-                    : b.count > 0
-                      ? "#1e3a5f"
-                      : "transparent",
-                  marginTop: `${100 - Math.max(pct, b.count > 0 ? 8 : 0)}%`,
+                  height: `${pct}%`,
+                  minHeight: b.count > 0 ? 4 : 0,
+                  background: isToday ? "#3b82f6" : b.count > 0 ? "#1e3a5f" : "transparent",
                 }}
               />
             </div>
             <span
-              className="text-[9px] font-bold"
-              style={{ color: isToday ? "#60a5fa" : "#475569" }}
+              className="text-[9px] font-medium"
+              style={{ color: isToday ? "#3b82f6" : "#333" }}
             >
               {b.dow}
             </span>
@@ -176,131 +160,127 @@ interface Props {
   totalEvents: number;
 }
 
-export function LogClient({ events, todayKey, yesterdayKey, totalEvents }: Props) {
+export function LogClient({ events, todayKey, yesterdayKey }: Props) {
   const days = buildDays(events, todayKey, yesterdayKey);
   const streak = calcStreak(days, todayKey);
-  const totalDays = days.length;
-  const totalCorrect = events.filter((e) => e.is_correct).length;
 
-  const page = "flex flex-col items-center px-3.5 pb-24 pt-5";
-  const card = "w-full max-w-[560px] rounded-2xl bg-card p-5 shadow-2xl sm:p-6";
+  const wrap = "flex flex-col items-center px-4 pb-28 pt-8";
+  const container = "w-full max-w-[520px]";
 
   return (
-    <div className={page}>
-      <div className={card}>
+    <div className={wrap}>
+      <div className={container}>
         {/* Header */}
-        <div className="mb-4">
-          <h2 className="text-lg font-extrabold text-slate-100">📅 学習ログ</h2>
+        <div className="mb-6 flex items-center justify-between">
+          <div>
+            <h1 className="text-base font-semibold text-white">学習ログ</h1>
+            <p className="text-xs text-[#444]">直近 90 日</p>
+          </div>
+          <Link
+            href="/"
+            className="text-xs text-[#444] transition hover:text-[#888]"
+          >
+            ← 戻る
+          </Link>
         </div>
 
         {/* Stats */}
-        <div className="mb-4 grid grid-cols-3 gap-2">
-          <div className="rounded-xl bg-card2 px-3 py-3 text-center">
-            <p className="text-xl font-extrabold text-orange-400">
-              {streak > 0 ? `🔥 ${streak}` : "—"}
+        <div className="mb-6 grid grid-cols-3 gap-2">
+          <div className="rounded-xl border border-[#1a1a1a] bg-[#0d0d0d] py-4 text-center">
+            <p className="text-xl font-bold tabular-nums text-white">
+              {streak > 0 ? streak : "—"}
             </p>
-            <p className="text-[9px] text-muted2">日連続</p>
+            <p className="text-[10px] text-[#333]">日連続</p>
           </div>
-          <div className="rounded-xl bg-card2 px-3 py-3 text-center">
-            <p className="text-xl font-extrabold text-sky-400">{totalDays}</p>
-            <p className="text-[9px] text-muted2">日間学習</p>
+          <div className="rounded-xl border border-[#1a1a1a] bg-[#0d0d0d] py-4 text-center">
+            <p className="text-xl font-bold tabular-nums text-white">{days.length}</p>
+            <p className="text-[10px] text-[#333]">日間</p>
           </div>
-          <div className="rounded-xl bg-card2 px-3 py-3 text-center">
-            <p className="text-xl font-extrabold text-slate-200">{events.length}</p>
-            <p className="text-[9px] text-muted2">問演習</p>
+          <div className="rounded-xl border border-[#1a1a1a] bg-[#0d0d0d] py-4 text-center">
+            <p className="text-xl font-bold tabular-nums text-white">{events.length}</p>
+            <p className="text-[10px] text-[#333]">問演習</p>
           </div>
         </div>
 
-        {/* Weekly bar chart */}
+        {/* Weekly chart */}
         {days.length > 0 && (
-          <div className="mb-5 rounded-xl bg-card2 px-4 py-3">
-            <p className="mb-3 text-[11px] font-bold text-slate-400">直近7日間</p>
+          <div className="mb-6 rounded-xl border border-[#1a1a1a] bg-[#0d0d0d] px-4 py-4">
+            <p className="mb-3 text-[10px] font-semibold uppercase tracking-widest text-[#3a3a3a]">
+              直近 7 日間
+            </p>
             <WeeklyBar days={days} todayKey={todayKey} />
           </div>
         )}
 
         {/* Daily list */}
         {days.length === 0 ? (
-          <div className="rounded-xl bg-card2 px-4 py-8 text-center">
-            <p className="text-sm text-muted2">まだ学習記録がありません</p>
-            <p className="mt-1 text-[11px] text-muted2">問題を解くと自動的に記録されます</p>
+          <div className="rounded-xl border border-[#1a1a1a] py-12 text-center">
+            <p className="text-sm text-[#333]">まだ記録がありません</p>
+            <p className="mt-1 text-xs text-[#222]">問題を解くと自動的に記録されます</p>
           </div>
         ) : (
-          <div className="flex flex-col gap-3">
+          <div className="space-y-2">
             {days.map((day) => {
               const acc = Math.round((day.correct / day.total) * 100);
+              const accColor = acc >= 70 ? "#22c55e" : acc >= 50 ? "#f59e0b" : "#ef4444";
               return (
-                <div key={day.dateKey} className="rounded-xl bg-card2 px-4 py-3">
+                <div key={day.dateKey} className="rounded-xl border border-[#1a1a1a] bg-[#0d0d0d] px-4 py-3.5">
                   {/* Day header */}
-                  <div className="mb-2 flex items-center justify-between">
-                    <p className="text-[13px] font-bold text-slate-200">{day.label}</p>
-                    <div className="flex items-center gap-2">
-                      <span className="text-[10px] text-muted2">
-                        {day.firstAt} 〜 {day.lastAt}
-                      </span>
-                    </div>
+                  <div className="mb-2.5 flex items-center justify-between">
+                    <p className="text-xs font-medium text-[#ccc]">{day.label}</p>
+                    <p className="text-[10px] text-[#333]">
+                      {day.firstAt} — {day.lastAt}
+                    </p>
                   </div>
 
-                  {/* Count + accuracy */}
-                  <div className="mb-2.5 flex items-center gap-3">
-                    <span className="text-[13px] font-extrabold text-slate-100">
-                      {day.total}問
-                    </span>
-                    <div className="flex items-center gap-1.5">
-                      <div className="h-1.5 w-20 overflow-hidden rounded-full bg-black/30">
+                  {/* Stats row */}
+                  <div className="mb-2.5 flex items-center gap-4">
+                    <span className="text-sm font-semibold text-white">{day.total} 問</span>
+                    <div className="flex items-center gap-2">
+                      <div className="h-px w-16 overflow-hidden rounded-full bg-[#1a1a1a]">
                         <div
                           className="h-full rounded-full"
-                          style={{
-                            width: `${acc}%`,
-                            background:
-                              acc >= 70 ? "#16a34a" : acc >= 50 ? "#d97706" : "#dc2626",
-                          }}
+                          style={{ width: `${acc}%`, background: accColor }}
                         />
                       </div>
-                      <span
-                        className="text-[11px] font-bold"
-                        style={{
-                          color:
-                            acc >= 70 ? "#86efac" : acc >= 50 ? "#fcd34d" : "#f87171",
-                        }}
-                      >
+                      <span className="text-xs font-semibold tabular-nums" style={{ color: accColor }}>
                         {acc}%
                       </span>
                     </div>
-                    <span className="text-[10px] text-muted2">
-                      ✓{day.correct} / ✗{day.total - day.correct}
+                    <span className="text-[10px] text-[#333]">
+                      ✓{day.correct} ✗{day.total - day.correct}
                     </span>
                   </div>
 
-                  {/* Subject chips */}
-                  <div className="mb-2 flex flex-wrap gap-1">
-                    {day.subjects.map((s) => (
-                      <span
-                        key={s.slug}
-                        className="rounded-md bg-black/20 px-2 py-0.5 text-[10px] font-bold text-slate-400"
-                      >
-                        {SUBJECT_LABELS[s.slug] ?? s.slug} {s.count}問
-                      </span>
-                    ))}
-                  </div>
+                  {/* Subject tags */}
+                  {day.subjects.length > 0 && (
+                    <div className="mb-2 flex flex-wrap gap-1">
+                      {day.subjects.map((s) => (
+                        <span
+                          key={s.slug}
+                          className="rounded-md border border-[#1e1e1e] px-2 py-0.5 text-[10px] text-[#444]"
+                        >
+                          {SUBJECT_LABELS[s.slug] ?? s.slug} {s.count}
+                        </span>
+                      ))}
+                    </div>
+                  )}
 
-                  {/* Category chips */}
-                  <div className="flex flex-wrap gap-1">
+                  {/* Category dots */}
+                  <div className="flex flex-wrap gap-2">
                     {day.categories.slice(0, 6).map((c) => (
-                      <span
-                        key={c.name}
-                        className="rounded-full px-2 py-0.5 text-[10px] font-bold"
-                        style={{
-                          background: c.color + "22",
-                          color: c.color,
-                          border: `1px solid ${c.color}44`,
-                        }}
-                      >
-                        {c.name} {c.count}
-                      </span>
+                      <div key={c.name} className="flex items-center gap-1.5">
+                        <span
+                          className="h-1.5 w-1.5 shrink-0 rounded-full"
+                          style={{ background: c.color }}
+                        />
+                        <span className="text-[10px] text-[#555]">
+                          {c.name} {c.count}
+                        </span>
+                      </div>
                     ))}
                     {day.categories.length > 6 && (
-                      <span className="rounded-full bg-card px-2 py-0.5 text-[10px] text-muted2">
+                      <span className="text-[10px] text-[#333]">
                         +{day.categories.length - 6}
                       </span>
                     )}
@@ -313,7 +293,7 @@ export function LogClient({ events, todayKey, yesterdayKey, totalEvents }: Props
 
         <Link
           href="/"
-          className="mt-4 block w-full rounded-xl bg-card2 py-3 text-center text-sm font-bold text-muted"
+          className="mt-4 block w-full rounded-xl border border-[#1a1a1a] py-3 text-center text-sm text-[#444] transition hover:border-[#333] hover:text-[#888]"
         >
           メニューに戻る
         </Link>

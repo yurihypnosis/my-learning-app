@@ -32,54 +32,60 @@ type Screen = "menu" | "quiz" | "done" | "analysis" | "export" | "goal";
 type SessionResult = { correct: boolean; category: string; color: string };
 
 const CONFIDENCE_LABELS = ["確信あり", "迷った", "勘"] as const;
-const CONFIDENCE_COLORS = ["#16a34a", "#f59e0b", "#dc2626"] as const;
+const CONFIDENCE_COLORS = ["#22c55e", "#f59e0b", "#ef4444"] as const;
 
 function arraysEqual(a: number[], b: number[]): boolean {
   return a.length === b.length && a.every((v, i) => v === b[i]);
 }
 
 function RichExplanation({ data }: { data: ExplanationData }) {
+  const lbl = "mb-2 text-[10px] font-semibold uppercase tracking-widest text-[#444]";
   return (
-    <div className="text-[13px] leading-7 text-slate-300">
-      <p className="mb-1.5 font-bold text-slate-200">▶ 何を問われているか</p>
-      <p className="mb-3">{data.asked}</p>
+    <div className="space-y-5 text-sm leading-7 text-[#aaa]">
+      <div>
+        <p className={lbl}>何を問われているか</p>
+        <p>{data.asked}</p>
+      </div>
 
       {data.terms && data.terms.length > 0 && (
-        <>
-          <p className="mb-1.5 font-bold text-slate-200">▶ キーワード</p>
-          <div className="mb-3 flex flex-col gap-1.5">
+        <div>
+          <p className={lbl}>キーワード</p>
+          <div className="space-y-2">
             {data.terms.map(([term, def], i) => (
-              <div key={i} className="rounded-lg bg-black/20 px-3 py-2">
-                <span className="font-bold text-sky-300">{term}</span>
-                <span className="ml-2 text-slate-400">{def}</span>
+              <div key={i} className="flex flex-wrap gap-x-2">
+                <span className="font-semibold text-[#e0e0e0]">{term}</span>
+                <span className="text-[#555]">—</span>
+                <span className="text-[#888]">{def}</span>
               </div>
             ))}
           </div>
-        </>
+        </div>
       )}
 
-      <p className="mb-1.5 font-bold text-slate-200">▶ 考え方</p>
-      <p className="mb-3">{data.think}</p>
+      <div>
+        <p className={lbl}>考え方</p>
+        <p>{data.think}</p>
+      </div>
 
       {data.vs && (
-        <>
-          <p className="mb-1.5 font-bold text-slate-200">▶ 混同ポイント</p>
-          <p className="mb-3">{data.vs}</p>
-        </>
+        <div>
+          <p className={lbl}>混同ポイント</p>
+          <p>{data.vs}</p>
+        </div>
       )}
 
       {data.opt && data.opt.length > 0 && (
-        <>
-          <p className="mb-1.5 font-bold text-slate-200">▶ 選択肢の解説</p>
-          <div className="flex flex-col gap-1">
+        <div>
+          <p className={lbl}>選択肢の解説</p>
+          <div className="space-y-2">
             {data.opt.map((o, i) => (
-              <div key={i} className="flex gap-2">
-                <span className="shrink-0 font-bold text-slate-400">{"ABCD"[i]}.</span>
+              <div key={i} className="flex gap-3">
+                <span className="w-4 shrink-0 font-semibold text-[#444]">{"ABCD"[i]}.</span>
                 <span>{o}</span>
               </div>
             ))}
           </div>
-        </>
+        </div>
       )}
     </div>
   );
@@ -117,15 +123,10 @@ export function LearningApp({
   const [deck, setDeck] = useState<QuizQuestion[]>([]);
   const [idx, setIdx] = useState(0);
 
-  // 単一回答: picked = 選んだ選択肢インデックス
   const [picked, setPicked] = useState<number | null>(null);
-  // 複数回答: 選択中のインデックス集合
   const [multiSelected, setMultiSelected] = useState<Set<number>>(new Set());
-  // 回答済みフラグ（single / multi 共通）
   const [answered, setAnswered] = useState(false);
-  // 確信度: 1=確信あり, 2=迷った, 3=勘
   const [confidence, setConfidence] = useState<number | null>(null);
-  // 想起モードで選択肢をまだ表示していない
   const [choicesHidden, setChoicesHidden] = useState(false);
 
   const [sessionResults, setSessionResults] = useState<SessionResult[]>([]);
@@ -134,13 +135,11 @@ export function LearningApp({
   const [exportMode, setExportMode] = useState<ExportMode>("weak");
   const [copyMsg, setCopyMsg] = useState("");
 
-  // 目標設定
   const [goal, setGoal] = useState<UserGoal | null>(null);
   const [goalDraft, setGoalDraft] = useState<{ examDate: string; targetName: string }>({
     examDate: "",
     targetName: "",
   });
-  // セッション開始時の合格確率（セッション後の変化量計算用）
   const [sessionStartPassProb, setSessionStartPassProb] = useState<number | null>(null);
 
   useEffect(() => {
@@ -151,7 +150,6 @@ export function LearningApp({
     if (g) setGoalDraft({ examDate: g.examDate, targetName: g.targetName });
   }, [currentSubjectSlug]);
 
-  // 解説表示中にメモを編集したら自動保存（800ms debounce）
   useEffect(() => {
     if (!answered || !deck[idx]) return;
     const qid = deck[idx].id;
@@ -213,7 +211,6 @@ export function LearningApp({
   const startQuiz = () => {
     const pool = buildDeck({ questions, progressMap, selectedCategoryIds: selCats, count, mode, now });
     if (!pool.length) return;
-    // セッション開始前の合格確率を記録（完了後のデルタ表示用）
     setSessionStartPassProb(calcMasteryStats(questions, progressMap).passProb);
     setDeck(pool);
     setIdx(0);
@@ -227,12 +224,10 @@ export function LearningApp({
     setScreen("quiz");
   };
 
-  // 単一回答
   const answerSingle = (choiceIdx: number) => {
     if (answered || confidence === null) return;
     const q = deck[idx];
     const isCorrect = choiceIdx === q.correct_index;
-    // まぐれ当たり：勘で正解 → consecutive_correct リセット
     const magure = isCorrect && confidence === 3;
     setPicked(choiceIdx);
     setAnswered(true);
@@ -262,7 +257,6 @@ export function LearningApp({
     recordAnswer(q, isCorrect, confidence);
   };
 
-  // 複数回答の選択切り替え
   const toggleMulti = (i: number) => {
     if (answered) return;
     setMultiSelected((prev) => {
@@ -272,7 +266,6 @@ export function LearningApp({
     });
   };
 
-  // 複数回答の確定
   const submitMulti = () => {
     if (answered || multiSelected.size === 0 || confidence === null) return;
     const q = deck[idx];
@@ -305,10 +298,6 @@ export function LearningApp({
     recordAnswer(q, isCorrect, confidence);
   };
 
-  const handleConfidence = (level: number) => {
-    setConfidence(level);
-  };
-
   const saveMemoAndNext = () => {
     const q = deck[idx];
     persist(q.id, { memo: memoText });
@@ -333,13 +322,17 @@ export function LearningApp({
   };
 
   if (now === 0) {
-    return <div className="flex justify-center pt-32 text-sm text-muted">読み込み中…</div>;
+    return (
+      <div className="flex justify-center pt-32 text-xs text-[#333]">
+        読み込み中
+      </div>
+    );
   }
 
-  const page = "flex flex-col items-center px-3.5 pb-24 pt-5";
-  const card = "w-full max-w-[560px] rounded-2xl bg-card p-5 shadow-2xl sm:p-6";
+  const wrap = "flex flex-col items-center px-4 pb-28 pt-8";
+  const container = "w-full max-w-[520px]";
 
-  // ============ GOAL SCREEN ============
+  // ── GOAL ──────────────────────────────────────────────────────────────
   if (screen === "goal") {
     const handleSaveGoal = () => {
       if (!goalDraft.examDate) return;
@@ -356,45 +349,45 @@ export function LearningApp({
     };
 
     return (
-      <div className={page}>
-        <div className={card}>
-          <h2 className="mb-4 text-lg font-extrabold text-slate-100">🎯 目標設定</h2>
+      <div className={wrap}>
+        <div className={container}>
+          <h1 className="mb-6 text-sm font-semibold text-white">目標設定</h1>
 
-          <p className="mb-1.5 text-sm font-bold text-slate-300">試験日</p>
+          <label className="mb-1.5 block text-xs text-[#555]">試験日</label>
           <input
             type="date"
             value={goalDraft.examDate}
             onChange={(e) => setGoalDraft((d) => ({ ...d, examDate: e.target.value }))}
-            className="mb-4 w-full rounded-xl border border-border bg-card2 px-4 py-3 text-sm text-slate-200 outline-none focus:border-primary2"
+            className="mb-5 w-full rounded-xl border border-[#222] bg-[#111] px-4 py-3 text-sm text-white outline-none focus:border-[#3b82f6] transition-colors"
           />
 
-          <p className="mb-1.5 text-sm font-bold text-slate-300">試験名・目標メモ（任意）</p>
+          <label className="mb-1.5 block text-xs text-[#555]">試験名（任意）</label>
           <input
             type="text"
             value={goalDraft.targetName}
             onChange={(e) => setGoalDraft((d) => ({ ...d, targetName: e.target.value }))}
             placeholder={`例: ${subjectName} 合格`}
-            className="mb-5 w-full rounded-xl border border-border bg-card2 px-4 py-3 text-sm text-slate-200 outline-none focus:border-primary2"
+            className="mb-6 w-full rounded-xl border border-[#222] bg-[#111] px-4 py-3 text-sm text-white outline-none placeholder:text-[#333] focus:border-[#3b82f6] transition-colors"
           />
 
           <button
             onClick={handleSaveGoal}
             disabled={!goalDraft.examDate}
-            className="mb-2 w-full rounded-xl bg-gradient-to-br from-primary to-primary2 py-3.5 text-sm font-bold text-white disabled:from-slate-700 disabled:to-slate-700"
+            className="mb-2 w-full rounded-xl bg-[#3b82f6] py-3 text-sm font-medium text-white transition hover:bg-[#60a5fa] disabled:bg-[#1a1a1a] disabled:text-[#333]"
           >
-            保存する
+            保存
           </button>
           {goal && (
             <button
               onClick={handleClearGoal}
-              className="mb-2 w-full rounded-xl bg-red-900/40 py-2.5 text-sm font-bold text-red-300"
+              className="mb-2 w-full rounded-xl border border-[#2a1010] bg-[#160606] py-3 text-sm font-medium text-[#ef4444] transition hover:border-[#3f1515]"
             >
-              目標を削除する
+              削除
             </button>
           )}
           <button
             onClick={() => setScreen("menu")}
-            className="w-full rounded-xl bg-card2 py-2.5 text-sm font-bold text-muted"
+            className="w-full rounded-xl py-3 text-sm text-[#444] transition hover:text-[#888]"
           >
             キャンセル
           </button>
@@ -403,134 +396,98 @@ export function LearningApp({
     );
   }
 
-  // ============ MENU ============
+  // ── MENU ──────────────────────────────────────────────────────────────
   if (screen === "menu") {
     const answeredCount = questions.filter((q) => {
       const p = getProgress(progressMap, q.id);
       return p.correct_count + p.wrong_count > 0;
     }).length;
-    // 目標逆算
     const stats = calcMasteryStats(questions, progressMap);
     const dailyRec = calcDailyRec(questions, progressMap, now, goal?.examDate ?? null);
-
     const countOptions = [5, 10, 20, eligible.length];
 
+    const probColor =
+      stats.passProb >= 70 ? "#22c55e" : stats.passProb >= 50 ? "#f59e0b" : "#ef4444";
+
     return (
-      <div className={page}>
-        <div className={card}>
-          <div className="mb-1 flex items-center justify-between">
-            <h1 className="text-lg font-extrabold text-slate-100">{subjectName}</h1>
+      <div className={wrap}>
+        <div className={container}>
+          {/* Header */}
+          <div className="mb-6 flex items-start justify-between">
+            <div>
+              <h1 className="text-base font-semibold text-white">{subjectName}</h1>
+              <p className="text-xs text-[#444]">
+                全 {questions.length} 問
+                {answeredCount > 0 && <span> · 演習済み {answeredCount}</span>}
+                {restingCount > 0 && <span> · 休眠 {restingCount}</span>}
+              </p>
+            </div>
             {subjects.length > 1 && (
               <select
                 value={currentSubjectSlug}
                 onChange={(e) => switchSubject(e.target.value)}
-                className="rounded-lg border border-border bg-card2 px-2 py-1 text-xs text-muted"
+                className="rounded-lg border border-[#222] bg-[#111] px-2.5 py-1.5 text-xs text-[#666] outline-none"
               >
                 {subjects.map((s) => (
-                  <option key={s.slug} value={s.slug}>
-                    {s.name}
-                  </option>
+                  <option key={s.slug} value={s.slug}>{s.name}</option>
                 ))}
               </select>
             )}
           </div>
-          <p className="mb-3 text-center text-xs text-muted2">
-            全{questions.length}問 ｜ 演習済み {answeredCount}問 ｜ 休眠中 {restingCount}問
-          </p>
 
-          {/* 🎯 目標・合格確率カード */}
+          {/* Goal card */}
           {goal ? (
-            <div className="mb-4 rounded-xl bg-card2 px-4 py-3.5">
-              <div className="mb-2.5 flex items-start justify-between">
-                <div>
-                  <p className="text-[11px] font-bold text-sky-400">
-                    🎯 {goal.targetName || subjectName}
+            <div className="mb-6 rounded-xl border border-[#222] bg-[#111] p-4">
+              <div className="mb-3 flex items-start justify-between gap-4">
+                <div className="min-w-0">
+                  <p className="truncate text-sm font-medium text-white">
+                    {goal.targetName || subjectName}
                   </p>
-                  <p className="mt-0.5 text-xs text-muted">
-                    残り{dailyRec.daysRemaining}日（
-                    {new Date(goal.examDate).toLocaleDateString("ja-JP", {
-                      month: "short",
-                      day: "numeric",
-                    })}
-                    ）
-                  </p>
+                  <p className="text-xs text-[#444]">残り {dailyRec.daysRemaining} 日</p>
                 </div>
-                <button
-                  onClick={() => setScreen("goal")}
-                  className="rounded-lg bg-black/20 px-2.5 py-1 text-[10px] font-bold text-muted2"
-                >
-                  変更
-                </button>
+                <div className="shrink-0 text-right">
+                  <p className="text-2xl font-bold tabular-nums" style={{ color: probColor }}>
+                    {stats.passProb}%
+                  </p>
+                  <p className="text-[10px] text-[#333]">合格確率</p>
+                </div>
               </div>
-              {/* 合格確率バー */}
-              <div className="mb-1.5 flex items-center justify-between">
-                <span className="text-[11px] font-bold text-slate-400">予測合格確率</span>
-                <span
-                  className="text-lg font-extrabold"
-                  style={{
-                    color:
-                      stats.passProb >= 70
-                        ? "#86efac"
-                        : stats.passProb >= 50
-                          ? "#fcd34d"
-                          : "#f87171",
-                  }}
-                >
-                  {stats.passProb}%
-                </span>
-              </div>
-              <div className="mb-2.5 h-2.5 overflow-hidden rounded-full bg-black/30">
+              <div className="mb-3 h-px overflow-hidden rounded-full bg-[#1e1e1e]">
                 <div
-                  className="h-full rounded-full transition-all"
-                  style={{
-                    width: `${stats.passProb}%`,
-                    background:
-                      stats.passProb >= 70
-                        ? "linear-gradient(to right, #16a34a, #86efac)"
-                        : stats.passProb >= 50
-                          ? "linear-gradient(to right, #d97706, #fcd34d)"
-                          : "linear-gradient(to right, #dc2626, #f87171)",
-                  }}
+                  className="h-full rounded-full transition-all duration-500"
+                  style={{ width: `${stats.passProb}%`, background: probColor }}
                 />
               </div>
-              {/* 今日のタスク推薦 */}
-              <div className="rounded-lg bg-black/20 px-3 py-2">
-                <p className="mb-1 text-[10px] font-bold text-slate-400">今日のおすすめ</p>
-                <p className="text-[12px] text-slate-200">
-                  {dailyRec.newCount > 0 && (
-                    <span>📗 新規 <b>{dailyRec.newCount}</b>問</span>
-                  )}
-                  {dailyRec.newCount > 0 && dailyRec.reviewCount > 0 && (
-                    <span className="mx-1.5 text-muted2">+</span>
-                  )}
-                  {dailyRec.reviewCount > 0 && (
-                    <span>🔄 復習 <b>{dailyRec.reviewCount}</b>問</span>
-                  )}
-                  {dailyRec.newCount === 0 && dailyRec.reviewCount === 0 && (
-                    <span className="text-emerald-400">✓ 今日のタスクは完了！</span>
-                  )}
+              <div className="flex items-center justify-between">
+                <p className="text-xs text-[#444]">
+                  {dailyRec.newCount > 0 && `新規 ${dailyRec.newCount}問`}
+                  {dailyRec.newCount > 0 && dailyRec.reviewCount > 0 && " · "}
+                  {dailyRec.reviewCount > 0 && `復習 ${dailyRec.reviewCount}問`}
+                  {dailyRec.newCount === 0 && dailyRec.reviewCount === 0 && "今日のタスク完了"}
                 </p>
-                <p className="mt-0.5 text-[10px] text-muted2">
-                  未習得{dailyRec.totalNew}問 ÷ 残り{dailyRec.daysRemaining}日 ＝ 1日{dailyRec.dailyNorm}問ペース
-                </p>
+                <button
+                  onClick={() => setScreen("goal")}
+                  className="text-xs text-[#333] transition hover:text-[#666]"
+                >
+                  編集
+                </button>
               </div>
             </div>
           ) : (
             <button
               onClick={() => setScreen("goal")}
-              className="mb-4 flex w-full items-center gap-3 rounded-xl border border-dashed border-slate-600 px-4 py-3.5 text-left"
+              className="mb-6 w-full rounded-xl border border-dashed border-[#222] px-4 py-4 text-left transition hover:border-[#333]"
             >
-              <span className="text-2xl">🎯</span>
-              <div>
-                <p className="text-sm font-bold text-slate-300">目標日を設定する</p>
-                <p className="text-[11px] text-muted2">試験日から今日のノルマと合格確率を逆算</p>
-              </div>
+              <p className="text-sm text-[#555]">試験日を設定</p>
+              <p className="text-xs text-[#333]">合格確率と今日のノルマを逆算します</p>
             </button>
           )}
 
-          {/* 分野選択 */}
-          <p className="mb-2 text-sm font-bold text-slate-300">分野（タップで選択/解除）</p>
-          <div className="mb-3 flex flex-wrap gap-1.5">
+          {/* Categories */}
+          <p className="mb-2 text-[10px] font-semibold uppercase tracking-widest text-[#3a3a3a]">
+            分野
+          </p>
+          <div className="mb-2 flex flex-wrap gap-1.5">
             {categories.map((c) => {
               const on = selCats.has(c.id);
               const all = questions.filter((q) => q.category_id === c.id);
@@ -545,155 +502,164 @@ export function LearningApp({
                     s.has(c.id) ? s.delete(c.id) : s.add(c.id);
                     setSelCats(s);
                   }}
-                  className="rounded-2xl border-2 px-3 py-1.5 text-xs font-bold"
+                  className="flex items-center gap-1.5 rounded-full border px-3 py-1 text-xs transition"
                   style={{
-                    borderColor: on ? c.color : "#2a3648",
-                    background: on ? c.color + "22" : "transparent",
-                    color: on ? c.color : "#4b5563",
+                    borderColor: on ? c.color + "55" : "#222",
+                    color: on ? c.color : "#555",
+                    background: on ? c.color + "0f" : "transparent",
                   }}
                 >
-                  {c.name} {all.length - rest}
-                  {rest > 0 ? `(+休${rest})` : ""}
+                  <span
+                    className="h-1.5 w-1.5 shrink-0 rounded-full"
+                    style={{ background: on ? c.color : "#333" }}
+                  />
+                  {c.name}
+                  <span className="text-[10px] opacity-60">{all.length - rest}</span>
                 </button>
               );
             })}
           </div>
-          <div className="mb-4 flex gap-2">
+          <div className="mb-6 flex gap-3">
             <button
               onClick={() => setSelCats(new Set(categories.map((c) => c.id)))}
-              className="rounded-lg bg-card2 px-3 py-1.5 text-xs font-bold text-muted"
+              className="text-xs text-[#333] transition hover:text-[#666]"
             >
               全選択
             </button>
+            <span className="text-[#222]">·</span>
             <button
               onClick={() => setSelCats(new Set())}
-              className="rounded-lg bg-card2 px-3 py-1.5 text-xs font-bold text-muted"
+              className="text-xs text-[#333] transition hover:text-[#666]"
             >
               全解除
             </button>
           </div>
 
-          {/* 問題数 */}
-          <p className="mb-2 text-sm font-bold text-slate-300">問題数</p>
-          <div className="mb-4 flex gap-2">
-            {countOptions.map((n, i) => (
-              <button
-                key={i}
-                onClick={() => setCount(n)}
-                className="flex-1 rounded-xl py-2.5 text-sm font-bold"
-                style={{
-                  background: count === n ? "#2563eb" : "#1e2d3d",
-                  color: count === n ? "#fff" : "#94a3b8",
-                }}
-              >
-                {i === 3 ? `全部(${eligible.length})` : `${n}問`}
-              </button>
-            ))}
+          {/* Count */}
+          <p className="mb-2 text-[10px] font-semibold uppercase tracking-widest text-[#3a3a3a]">
+            問題数
+          </p>
+          <div className="mb-6 flex overflow-hidden rounded-xl border border-[#222]">
+            {countOptions.map((n, i) => {
+              const on = count === n;
+              return (
+                <button
+                  key={i}
+                  onClick={() => setCount(n)}
+                  className="flex-1 border-r border-[#222] py-2.5 text-sm font-medium last:border-r-0 transition"
+                  style={{
+                    background: on ? "#3b82f6" : "transparent",
+                    color: on ? "#fff" : "#444",
+                  }}
+                >
+                  {i === 3 ? eligible.length : n}
+                </button>
+              );
+            })}
           </div>
 
-          {/* ★ スタート（主動線） */}
+          {/* Start CTA */}
           <button
             onClick={startQuiz}
             disabled={!eligible.length}
-            className="mb-5 w-full rounded-xl bg-gradient-to-br from-primary to-primary2 py-4 text-base font-bold text-white disabled:from-slate-700 disabled:to-slate-700"
+            className="mb-6 w-full rounded-xl bg-[#3b82f6] py-4 text-sm font-semibold text-white transition hover:bg-[#60a5fa] disabled:bg-[#161616] disabled:text-[#333]"
           >
-            スタート（{Math.min(count, eligible.length)}問）
+            スタート — {Math.min(count, eligible.length)} 問
           </button>
 
-          {/* 詳細設定（折りたたみ感覚で下に） */}
-          <details className="mb-4 group" open={mode === "priority" || recallMode}>
-            <summary className="mb-3 cursor-pointer list-none text-[11px] font-bold text-slate-500 group-open:text-slate-400">
-              ▸ 詳細設定（モード・想起）
+          {/* Advanced settings */}
+          <details className="mb-6 group" open={mode === "priority" || recallMode}>
+            <summary className="mb-3 cursor-pointer list-none text-xs text-[#333] transition hover:text-[#666] group-open:text-[#555]">
+              詳細設定
             </summary>
 
-            {/* 出題モード */}
-            <p className="mb-2 text-sm font-bold text-slate-300">出題モード</p>
-            <div className="mb-2 flex gap-2">
-              <button
-                onClick={() => setMode("shuffle")}
-                className="flex-1 rounded-xl py-3 text-sm font-bold"
-                style={{
-                  background: mode === "shuffle" ? "#2563eb" : "#1e2d3d",
-                  color: mode === "shuffle" ? "#fff" : "#94a3b8",
-                }}
-              >
-                🔀 シャッフル
-              </button>
-              <button
-                onClick={() => setMode("priority")}
-                className="flex-1 rounded-xl py-3 text-sm font-bold"
-                style={{
-                  background: mode === "priority" ? "#dc2626" : "#1e2d3d",
-                  color: mode === "priority" ? "#fff" : "#94a3b8",
-                }}
-              >
-                🔥 弱点優先
-              </button>
-            </div>
-            <p className="mb-4 text-[11px] text-muted2">
-              {mode === "priority"
-                ? "間違えた回数が多い問題から優先的に出題"
-                : "選択した分野からランダムに出題"}
-              ｜3回連続正解は2週間出題されません
-            </p>
-
-            {/* 想起モード */}
-            <div className="flex items-center justify-between rounded-xl bg-card2 px-4 py-3">
+            <div className="space-y-4">
               <div>
-                <p className="text-sm font-bold text-slate-300">🧠 想起モード</p>
-                <p className="text-[11px] text-muted2">選択肢を隠して先に考える（検索練習効果）</p>
+                <p className="mb-2 text-[10px] font-semibold uppercase tracking-widest text-[#3a3a3a]">
+                  出題モード
+                </p>
+                <div className="flex overflow-hidden rounded-xl border border-[#222]">
+                  {([["shuffle", "シャッフル"], ["priority", "弱点優先"]] as const).map(
+                    ([m, lbl], i) => (
+                      <button
+                        key={m}
+                        onClick={() => setMode(m)}
+                        className="flex-1 py-2.5 text-sm transition"
+                        style={{
+                          borderRight: i === 0 ? "1px solid #222" : "none",
+                          background:
+                            mode === m
+                              ? m === "priority"
+                                ? "#1f0a0a"
+                                : "#0d1f3c"
+                              : "transparent",
+                          color:
+                            mode === m
+                              ? m === "priority"
+                                ? "#f87171"
+                                : "#60a5fa"
+                              : "#444",
+                        }}
+                      >
+                        {lbl}
+                      </button>
+                    )
+                  )}
+                </div>
+                <p className="mt-1.5 text-xs text-[#333]">
+                  3回連続正解は2週間休眠
+                </p>
               </div>
-              <button
-                onClick={() => setRecallMode((v) => !v)}
-                className="relative inline-flex h-6 w-11 items-center rounded-full transition-colors"
-                style={{ background: recallMode ? "#2563eb" : "#2a3648" }}
-              >
-                <span
-                  className="inline-block h-4 w-4 rounded-full bg-white shadow transition-transform"
-                  style={{ transform: recallMode ? "translateX(22px)" : "translateX(2px)" }}
-                />
-              </button>
+
+              <div className="flex items-center justify-between rounded-xl border border-[#222] px-4 py-3">
+                <div>
+                  <p className="text-sm text-[#ccc]">想起モード</p>
+                  <p className="text-xs text-[#444]">選択肢を隠して先に考える</p>
+                </div>
+                <button
+                  onClick={() => setRecallMode((v) => !v)}
+                  className="relative h-6 w-11 shrink-0 rounded-full transition-colors"
+                  style={{ background: recallMode ? "#3b82f6" : "#222" }}
+                >
+                  <span
+                    className="absolute top-1 h-4 w-4 rounded-full bg-white shadow transition-all"
+                    style={{ left: recallMode ? "calc(100% - 20px)" : "4px" }}
+                  />
+                </button>
+              </div>
             </div>
           </details>
 
-          <div className="mb-2 flex gap-2">
-            <button
-              onClick={() => router.push("/roadmap")}
-              className="flex-1 rounded-xl bg-card2 py-3 text-sm font-bold text-slate-300"
-            >
-              🗺 ロードマップ
-            </button>
-            <button
-              onClick={() => router.push("/log")}
-              className="flex-1 rounded-xl bg-card2 py-3 text-sm font-bold text-slate-300"
-            >
-              📅 学習ログ
-            </button>
-          </div>
-          <div className="flex gap-2">
-            <button
-              onClick={() => setScreen("analysis")}
-              className="flex-1 rounded-xl bg-card2 py-3 text-sm font-bold text-muted"
-            >
-              📊 苦手分析
-            </button>
-            <button
-              onClick={() => {
-                setCsvText(buildCSV(questions, progressMap, now, exportMode));
-                setCopyMsg("");
-                setScreen("export");
-              }}
-              className="flex-1 rounded-xl bg-card2 py-3 text-sm font-bold text-muted"
-            >
-              📋 書き出し
-            </button>
+          {/* Nav grid */}
+          <div className="grid grid-cols-2 gap-2">
+            {[
+              { label: "ロードマップ", action: () => router.push("/roadmap") },
+              { label: "学習ログ",     action: () => router.push("/log") },
+              { label: "苦手分析",     action: () => setScreen("analysis") },
+              {
+                label: "書き出し",
+                action: () => {
+                  setCsvText(buildCSV(questions, progressMap, now, exportMode));
+                  setCopyMsg("");
+                  setScreen("export");
+                },
+              },
+            ].map(({ label, action }) => (
+              <button
+                key={label}
+                onClick={action}
+                className="rounded-xl border border-[#1a1a1a] py-3 text-xs text-[#444] transition hover:border-[#333] hover:text-[#888]"
+              >
+                {label}
+              </button>
+            ))}
           </div>
         </div>
       </div>
     );
   }
 
-  // ============ EXPORT ============
+  // ── EXPORT ────────────────────────────────────────────────────────────
   if (screen === "export") {
     const weakCount = questions.filter((q) => {
       const p = getProgress(progressMap, q.id);
@@ -710,9 +676,9 @@ export function LearningApp({
     ).length;
 
     const MODES: { key: ExportMode; label: string; count: number }[] = [
-      { key: "weak", label: "🔥 苦手問題", count: weakCount },
-      { key: "memo", label: "📝 メモあり", count: memoCount },
-      { key: "all",  label: "全問題",     count: questions.length },
+      { key: "weak", label: "苦手",     count: weakCount },
+      { key: "memo", label: "メモあり", count: memoCount },
+      { key: "all",  label: "全問題",   count: questions.length },
     ];
 
     const rebuild = (m: ExportMode) => {
@@ -721,94 +687,85 @@ export function LearningApp({
       setCopyMsg("");
     };
 
-    const doCopy = async () => {
-      try {
-        await navigator.clipboard.writeText(csvText);
-        setCopyMsg("✓ コピーしました");
-      } catch {
-        setCopyMsg("⚠ コピー不可。下のテキストを手動で全選択してください");
-      }
-    };
-
     return (
-      <div className={page}>
-        <div className={card}>
-          <h2 className="mb-1.5 text-lg font-extrabold text-slate-100">📋 書き出し（CSV）</h2>
-          <p className="mb-4 text-xs text-muted2">
-            習得度50%未満を苦手と判定。CSVをダウンロードまたはコピーできます。
-          </p>
+      <div className={wrap}>
+        <div className={container}>
+          <div className="mb-6 flex items-center justify-between">
+            <h1 className="text-sm font-semibold text-white">書き出し（CSV）</h1>
+            <button
+              onClick={() => setScreen("menu")}
+              className="text-xs text-[#444] transition hover:text-[#888]"
+            >
+              ← 戻る
+            </button>
+          </div>
 
-          {/* フィルター3択 */}
-          <div className="mb-3.5 flex gap-2">
-            {MODES.map(({ key, label, count }) => {
+          <p className="mb-3 text-[10px] font-semibold uppercase tracking-widest text-[#3a3a3a]">
+            対象
+          </p>
+          <div className="mb-5 flex overflow-hidden rounded-xl border border-[#222]">
+            {MODES.map(({ key, label, count }, i) => {
               const on = exportMode === key;
               return (
                 <button
                   key={key}
                   onClick={() => rebuild(key)}
-                  className="flex-1 rounded-xl py-2.5 text-[12px] font-bold"
+                  className="flex-1 py-2.5 text-xs font-medium transition"
                   style={{
-                    background: on ? (key === "weak" ? "#7f1d1d" : "#1e3a5f") : "#1e2d3d",
-                    color: on ? (key === "weak" ? "#fca5a5" : "#93c5fd") : "#64748b",
-                    border: on ? `1px solid ${key === "weak" ? "#dc262644" : "#2563eb44"}` : "1px solid transparent",
+                    borderRight: i < MODES.length - 1 ? "1px solid #222" : "none",
+                    background: on ? "#1e1e1e" : "transparent",
+                    color: on ? "#fff" : "#444",
                   }}
                 >
                   {label}
-                  <span className="ml-1 opacity-70">({count})</span>
+                  <span className="ml-1 opacity-50">({count})</span>
                 </button>
               );
             })}
           </div>
 
           {exportMode === "weak" && weakCount === 0 && (
-            <div className="mb-4 rounded-xl bg-emerald-900/30 px-4 py-3 text-center">
-              <p className="text-sm font-bold text-emerald-400">🎉 苦手問題なし！</p>
-              <p className="text-[11px] text-emerald-600">全問題の習得度が50%以上です</p>
+            <div className="mb-5 rounded-xl border border-[#0a2a1a] bg-[#061510] p-4 text-center">
+              <p className="text-sm text-[#22c55e]">苦手問題なし</p>
+              <p className="text-xs text-[#1a5a2a]">習得度 50% 以上の問題のみです</p>
             </div>
           )}
 
           <button
-            onClick={() =>
-              downloadCSV(`${currentSubjectSlug}-${exportMode}.csv`, csvText)
-            }
-            className="mb-2 w-full rounded-xl bg-gradient-to-br from-emerald-600 to-emerald-700 py-3.5 text-sm font-bold text-white"
+            onClick={() => downloadCSV(`${currentSubjectSlug}-${exportMode}.csv`, csvText)}
+            className="mb-2 w-full rounded-xl bg-[#3b82f6] py-3.5 text-sm font-medium text-white transition hover:bg-[#60a5fa]"
           >
-            ⬇ CSVをダウンロード
+            ダウンロード
           </button>
           <button
-            onClick={doCopy}
-            className="mb-2 w-full rounded-xl bg-card2 py-2.5 text-sm font-bold text-muted"
+            onClick={async () => {
+              try {
+                await navigator.clipboard.writeText(csvText);
+                setCopyMsg("コピーしました");
+              } catch {
+                setCopyMsg("コピー不可 — テキストを手動で選択してください");
+              }
+            }}
+            className="mb-2 w-full rounded-xl border border-[#222] py-3 text-sm text-[#666] transition hover:border-[#333] hover:text-[#aaa]"
           >
-            📋 クリップボードにコピー
+            クリップボードにコピー
           </button>
           {copyMsg && (
-            <p
-              className="mb-3 text-center text-xs"
-              style={{ color: copyMsg.startsWith("✓") ? "#86efac" : "#fbbf24" }}
-            >
-              {copyMsg}
-            </p>
+            <p className="mb-3 text-center text-xs text-[#666]">{copyMsg}</p>
           )}
 
           <textarea
             readOnly
             value={csvText}
             onFocus={(e) => e.target.select()}
-            className="mb-4 min-h-[200px] w-full resize-y overflow-x-auto whitespace-pre rounded-xl border border-border bg-card2 px-3 py-2.5 font-mono text-[11px] text-slate-300"
+            className="mb-4 min-h-[180px] w-full resize-y overflow-x-auto rounded-xl border border-[#1a1a1a] bg-[#0d0d0d] px-3 py-2.5 font-mono text-[11px] text-[#555]"
           />
-
-          <button
-            onClick={() => setScreen("menu")}
-            className="w-full rounded-xl bg-card2 py-3 text-sm font-bold text-muted"
-          >
-            メニューに戻る
-          </button>
         </div>
       </div>
     );
   }
 
-  // ============ ANALYSIS ============
+  // ── ANALYSIS ──────────────────────────────────────────────────────────
   if (screen === "analysis") {
     const catStats = categories
       .map((c) => {
@@ -831,102 +788,96 @@ export function LearningApp({
       .sort((a, b) => {
         const pa = getProgress(progressMap, a.id);
         const pb = getProgress(progressMap, b.id);
-        return (
-          totalWrong(b, pb) - totalCorrect(pb) - (totalWrong(a, pa) - totalCorrect(pa))
-        );
+        return totalWrong(b, pb) - totalCorrect(pb) - (totalWrong(a, pa) - totalCorrect(pa));
       })
       .slice(0, 8);
 
-    // 合格確率 + スキルツリー
     const masteryStats = calcMasteryStats(questions, progressMap);
     const catMastery = calcCategoryMastery(categories, questions, progressMap);
+    const probColor =
+      masteryStats.passProb >= 70 ? "#22c55e" : masteryStats.passProb >= 50 ? "#f59e0b" : "#ef4444";
 
     return (
-      <div className={page}>
-        <div className={card}>
-          <h2 className="mb-4 text-lg font-extrabold text-slate-100">📊 苦手傾向分析</h2>
+      <div className={wrap}>
+        <div className={container}>
+          <div className="mb-6 flex items-center justify-between">
+            <h1 className="text-sm font-semibold text-white">苦手分析</h1>
+            <button
+              onClick={() => setScreen("menu")}
+              className="text-xs text-[#444] transition hover:text-[#888]"
+            >
+              ← 戻る
+            </button>
+          </div>
 
-          {/* 予測合格確率カード */}
-          <div className="mb-5 rounded-xl bg-card2 px-4 py-4">
-            <div className="mb-3 flex items-center justify-between">
-              <p className="text-sm font-bold text-slate-300">🎯 予測合格確率</p>
-              <span
-                className="text-2xl font-extrabold"
-                style={{
-                  color:
-                    masteryStats.passProb >= 70
-                      ? "#86efac"
-                      : masteryStats.passProb >= 50
-                        ? "#fcd34d"
-                        : "#f87171",
-                }}
-              >
+          {/* Pass probability */}
+          <div className="mb-6 rounded-xl border border-[#222] bg-[#111] p-4">
+            <div className="mb-3 flex items-end justify-between">
+              <p className="text-xs text-[#555]">予測合格確率</p>
+              <p className="text-3xl font-bold tabular-nums" style={{ color: probColor }}>
                 {masteryStats.passProb}%
-              </span>
+              </p>
             </div>
-            <div className="mb-3 h-3 overflow-hidden rounded-full bg-black/30">
+            <div className="mb-3 h-px overflow-hidden rounded-full bg-[#1a1a1a]">
               <div
                 className="h-full rounded-full transition-all"
-                style={{
-                  width: `${masteryStats.passProb}%`,
-                  background:
-                    masteryStats.passProb >= 70
-                      ? "linear-gradient(to right, #16a34a, #86efac)"
-                      : masteryStats.passProb >= 50
-                        ? "linear-gradient(to right, #d97706, #fcd34d)"
-                        : "linear-gradient(to right, #dc2626, #f87171)",
-                }}
+                style={{ width: `${masteryStats.passProb}%`, background: probColor }}
               />
             </div>
-            <div className="flex justify-between text-[11px] text-muted2">
-              <span>演習済み {masteryStats.attempted}/{questions.length}問</span>
-              <span>習得済み {masteryStats.masteredCount}問</span>
-              <span>弱点 {masteryStats.weakCount}問</span>
+            <div className="flex gap-4 text-xs text-[#444]">
+              <span>演習 {masteryStats.attempted} / {questions.length}</span>
+              <span>習得 {masteryStats.masteredCount}</span>
+              <span>弱点 {masteryStats.weakCount}</span>
             </div>
           </div>
 
-          {/* スキルツリー：分野別習得マップ + 正答率 */}
-          <p className="mb-2.5 text-sm font-bold text-slate-300">🗺 分野別スキルツリー</p>
-          <div className="mb-5 flex flex-col gap-2">
+          {/* Skill tree */}
+          <p className="mb-3 text-[10px] font-semibold uppercase tracking-widest text-[#3a3a3a]">
+            分野別スキルツリー
+          </p>
+          <div className="mb-6 space-y-2">
             {catMastery.map((cm) => {
               const pct = Math.round(cm.mastery * 100);
               const stat = catStats.find((s) => s.id === cm.id);
               return (
-                <div key={cm.id} className="rounded-xl bg-card2 p-3">
-                  <div className="mb-1.5 flex items-center justify-between">
-                    <div className="flex items-center gap-2">
-                      <div
-                        className="h-2.5 w-2.5 rounded-full"
+                <div key={cm.id} className="rounded-xl border border-[#1a1a1a] bg-[#0d0d0d] p-3.5">
+                  <div className="mb-2 flex items-center justify-between gap-2">
+                    <div className="flex min-w-0 items-center gap-2">
+                      <span
+                        className="h-2 w-2 shrink-0 rounded-full"
                         style={{ background: cm.color }}
                       />
-                      <span className="text-[12px] font-bold text-slate-300">{cm.name}</span>
+                      <span className="truncate text-xs font-medium text-[#ccc]">{cm.name}</span>
                     </div>
-                    <div className="flex items-center gap-2.5">
+                    <div className="flex shrink-0 items-center gap-3 text-[10px] text-[#444]">
                       {stat?.acc !== null && stat?.acc !== undefined && (
-                        <span className="text-[10px] text-muted2">
-                          正答{stat.acc}%（誤{stat.w}/正{stat.cc}）
-                        </span>
+                        <span>正答 {stat.acc}%</span>
                       )}
-                      <span className="text-[10px] text-muted2">
-                        {cm.masteredCount}/{cm.total}習得
-                      </span>
+                      <span>{cm.masteredCount}/{cm.total}</span>
                       <span
-                        className="min-w-[36px] text-right text-[12px] font-extrabold"
+                        className="w-9 text-right font-semibold"
                         style={{
-                          color: pct >= 70 ? "#86efac" : pct >= 40 ? "#fcd34d" : pct === 0 ? "#475569" : "#f87171",
+                          color:
+                            pct >= 70
+                              ? "#22c55e"
+                              : pct >= 40
+                                ? "#f59e0b"
+                                : pct === 0
+                                  ? "#333"
+                                  : "#ef4444",
                         }}
                       >
                         {pct === 0 ? "未着" : `${pct}%`}
                       </span>
                     </div>
                   </div>
-                  <div className="h-1.5 overflow-hidden rounded-full bg-black/30">
+                  <div className="h-px overflow-hidden rounded-full bg-[#1a1a1a]">
                     <div
-                      className="h-full rounded-full"
+                      className="h-full rounded-full transition-all"
                       style={{
                         width: `${pct}%`,
                         background: cm.color,
-                        opacity: pct === 0 ? 0.2 : 1,
+                        opacity: pct === 0 ? 0.15 : 0.7,
                       }}
                     />
                   </div>
@@ -935,75 +886,75 @@ export function LearningApp({
             })}
           </div>
 
-          <p className="mb-2.5 mt-5 text-sm font-bold text-slate-300">
-            🔥 最重点問題トップ8（誤答−正答が大きい順）
+          {/* Worst questions */}
+          <p className="mb-3 text-[10px] font-semibold uppercase tracking-widest text-[#3a3a3a]">
+            最重点 8 問
           </p>
-          {worst.map((q) => {
-            const p = getProgress(progressMap, q.id);
-            return (
-              <div
-                key={q.id}
-                className="mb-1.5 rounded-xl bg-card2 px-3 py-2.5"
-                style={{ borderLeft: `3px solid ${q.category_color}` }}
-              >
-                <div className="mb-1 flex justify-between">
-                  <span className="text-[10px] font-bold" style={{ color: q.category_color }}>
-                    {q.category_name}
-                  </span>
-                  <span className="text-[10px] text-muted">
-                    誤{totalWrong(q, p)} 正{totalCorrect(p)} ｜{" "}
-                    {p.last_confidence === 1
-                      ? "確信あり"
-                      : p.last_confidence === 2
-                        ? "迷った"
-                        : p.last_confidence === 3
-                          ? "勘"
-                          : "未回答"}
-                  </span>
-                </div>
-                <div className="text-xs leading-relaxed text-slate-300">
-                  {q.question_text.slice(0, 60)}…
-                </div>
-              </div>
-            );
-          })}
-
-          <p className="mb-2.5 mt-5 text-sm font-bold text-slate-300">確信度の分布（演習済み問題）</p>
-          <div className="mb-5 flex gap-1.5">
-            {CONFIDENCE_LABELS.map((label, i) => {
-              const level = i + 1;
-              const count = questions.filter(
-                (qq) => getProgress(progressMap, qq.id).last_confidence === level
-              ).length;
+          <div className="mb-6 space-y-1.5">
+            {worst.map((q) => {
+              const p = getProgress(progressMap, q.id);
               return (
-                <div key={i} className="flex-1 rounded-xl bg-card2 px-1 py-2.5 text-center">
-                  <div className="text-xl font-extrabold" style={{ color: CONFIDENCE_COLORS[i] }}>
-                    {count}
+                <div
+                  key={q.id}
+                  className="flex items-start gap-3 rounded-xl border border-[#1a1a1a] px-3.5 py-3"
+                >
+                  <span
+                    className="mt-0.5 h-2 w-2 shrink-0 rounded-full"
+                    style={{ background: q.category_color }}
+                  />
+                  <div className="min-w-0 flex-1">
+                    <p className="truncate text-xs text-[#888]">
+                      {q.question_text.slice(0, 55)}…
+                    </p>
+                    <p className="mt-0.5 text-[10px] text-[#444]">
+                      誤 {totalWrong(q, p)} 正 {totalCorrect(p)}
+                      {p.last_confidence !== null && (
+                        <span className="ml-2" style={{ color: CONFIDENCE_COLORS[(p.last_confidence ?? 1) - 1] }}>
+                          {CONFIDENCE_LABELS[(p.last_confidence ?? 1) - 1]}
+                        </span>
+                      )}
+                    </p>
                   </div>
-                  <div className="text-[9px] text-muted2">{label}</div>
                 </div>
               );
             })}
-            <div className="flex-1 rounded-xl bg-card2 px-1 py-2.5 text-center">
-              <div className="text-xl font-extrabold text-slate-600">
-                {questions.filter((qq) => getProgress(progressMap, qq.id).last_confidence === null).length}
-              </div>
-              <div className="text-[9px] text-muted2">未回答</div>
-            </div>
           </div>
 
-          <button
-            onClick={() => setScreen("menu")}
-            className="w-full rounded-xl bg-gradient-to-br from-primary to-primary2 py-3 text-sm font-bold text-white"
-          >
-            メニューに戻る
-          </button>
+          {/* Confidence distribution */}
+          <p className="mb-3 text-[10px] font-semibold uppercase tracking-widest text-[#3a3a3a]">
+            確信度の分布
+          </p>
+          <div className="mb-6 flex gap-2">
+            {CONFIDENCE_LABELS.map((label, i) => {
+              const level = i + 1;
+              const cnt = questions.filter(
+                (qq) => getProgress(progressMap, qq.id).last_confidence === level
+              ).length;
+              return (
+                <div
+                  key={i}
+                  className="flex-1 rounded-xl border border-[#1a1a1a] bg-[#0d0d0d] py-3 text-center"
+                >
+                  <p className="text-xl font-bold tabular-nums" style={{ color: CONFIDENCE_COLORS[i] }}>
+                    {cnt}
+                  </p>
+                  <p className="text-[9px] text-[#333]">{label}</p>
+                </div>
+              );
+            })}
+            <div className="flex-1 rounded-xl border border-[#1a1a1a] bg-[#0d0d0d] py-3 text-center">
+              <p className="text-xl font-bold tabular-nums text-[#2a2a2a]">
+                {questions.filter((qq) => getProgress(progressMap, qq.id).last_confidence === null).length}
+              </p>
+              <p className="text-[9px] text-[#333]">未回答</p>
+            </div>
+          </div>
         </div>
       </div>
     );
   }
 
-  // ============ DONE ============
+  // ── DONE ──────────────────────────────────────────────────────────────
   if (screen === "done") {
     const ok = sessionResults.filter((r) => r.correct).length;
     const pct = sessionResults.length
@@ -1011,84 +962,85 @@ export function LearningApp({
       : 0;
     const breakdown: Record<string, { ok: number; ng: number; color: string }> = {};
     sessionResults.forEach((r) => {
-      if (!breakdown[r.category])
-        breakdown[r.category] = { ok: 0, ng: 0, color: r.color };
+      if (!breakdown[r.category]) breakdown[r.category] = { ok: 0, ng: 0, color: r.color };
       r.correct ? breakdown[r.category].ok++ : breakdown[r.category].ng++;
     });
     const currentPassProb = calcMasteryStats(questions, progressMap).passProb;
-    const probDelta =
-      sessionStartPassProb !== null ? currentPassProb - sessionStartPassProb : null;
+    const probDelta = sessionStartPassProb !== null ? currentPassProb - sessionStartPassProb : null;
 
     return (
-      <div className={page}>
-        <div className={`${card} text-center`}>
-          <div className="mb-2 text-5xl">{pct >= 80 ? "🎉" : pct >= 60 ? "💪" : "📚"}</div>
-          <h2 className="mb-1.5 text-2xl font-extrabold text-slate-100">
-            {ok} / {sessionResults.length} 正解
-          </h2>
-          <p className="mb-4 text-muted">正答率 {pct}%</p>
+      <div className={wrap}>
+        <div className={container}>
+          {/* Score */}
+          <div className="mb-6 rounded-xl border border-[#222] bg-[#111] p-6 text-center">
+            <p className="mb-1 text-4xl font-bold tabular-nums text-white">
+              {ok}
+              <span className="text-xl text-[#333]"> / {sessionResults.length}</span>
+            </p>
+            <p className="text-sm text-[#555]">正答率 {pct}%</p>
 
-          {/* 合格確率の変化 */}
-          {probDelta !== null && (
-            <div
-              className="mx-auto mb-5 max-w-xs rounded-xl px-5 py-3"
-              style={{
-                background: probDelta > 0 ? "#14532d33" : probDelta < 0 ? "#7f1d1d33" : "#1e2d3d",
-                border: `1px solid ${probDelta > 0 ? "#16a34a44" : probDelta < 0 ? "#dc262644" : "#2a3648"}`,
-              }}
-            >
-              <p className="mb-1 text-[11px] font-bold text-slate-400">予測合格確率</p>
-              <p className="text-xl font-extrabold">
-                <span className="text-slate-400">{sessionStartPassProb}%</span>
-                <span className="mx-2 text-slate-500">→</span>
+            {probDelta !== null && (
+              <div className="mt-4 flex items-center justify-center gap-2 text-sm tabular-nums">
+                <span className="text-[#444]">{sessionStartPassProb}%</span>
+                <span className="text-[#222]">→</span>
                 <span
+                  className="font-semibold"
                   style={{
                     color:
-                      currentPassProb >= 70
-                        ? "#86efac"
-                        : currentPassProb >= 50
-                          ? "#fcd34d"
-                          : "#f87171",
+                      currentPassProb >= 70 ? "#22c55e" : currentPassProb >= 50 ? "#f59e0b" : "#ef4444",
                   }}
                 >
                   {currentPassProb}%
                 </span>
                 {probDelta !== 0 && (
                   <span
-                    className="ml-2 text-sm font-bold"
-                    style={{ color: probDelta > 0 ? "#86efac" : "#f87171" }}
+                    className="text-xs"
+                    style={{ color: probDelta > 0 ? "#22c55e" : "#ef4444" }}
                   >
-                    ({probDelta > 0 ? "+" : ""}
-                    {probDelta}%)
+                    ({probDelta > 0 ? "+" : ""}{probDelta}%)
                   </span>
                 )}
-              </p>
+              </div>
+            )}
+          </div>
+
+          {/* Category breakdown */}
+          {Object.keys(breakdown).length > 0 && (
+            <div className="mb-6 rounded-xl border border-[#1a1a1a] overflow-hidden">
+              {Object.entries(breakdown).map(([cat, v], i) => (
+                <div
+                  key={cat}
+                  className="flex items-center justify-between px-4 py-3"
+                  style={{
+                    borderTop: i > 0 ? "1px solid #1a1a1a" : "none",
+                  }}
+                >
+                  <div className="flex items-center gap-2">
+                    <span
+                      className="h-1.5 w-1.5 rounded-full"
+                      style={{ background: v.color }}
+                    />
+                    <span className="text-xs text-[#888]">{cat}</span>
+                  </div>
+                  <div className="flex gap-3 text-xs">
+                    <span className="text-[#22c55e]">{v.ok}</span>
+                    <span className="text-[#ef4444]">{v.ng}</span>
+                  </div>
+                </div>
+              ))}
             </div>
           )}
 
-          <div className="mb-6 text-left">
-            {Object.entries(breakdown).map(([d, v]) => (
-              <div key={d} className="flex justify-between border-b border-card2 py-1.5">
-                <span className="text-sm font-bold" style={{ color: v.color }}>
-                  {d}
-                </span>
-                <span className="text-sm">
-                  <span className="text-emerald-300">✓{v.ok}</span>{" "}
-                  <span className="text-red-300">✗{v.ng}</span>
-                </span>
-              </div>
-            ))}
-          </div>
-          <div className="flex gap-2.5">
+          <div className="flex gap-2">
             <button
               onClick={() => setScreen("analysis")}
-              className="flex-1 rounded-xl bg-card2 py-3 text-sm font-bold text-muted"
+              className="flex-1 rounded-xl border border-[#222] py-3 text-sm text-[#555] transition hover:border-[#333] hover:text-[#888]"
             >
-              📊 分析
+              分析
             </button>
             <button
               onClick={() => setScreen("menu")}
-              className="flex-1 rounded-xl bg-gradient-to-br from-primary to-primary2 py-3 text-sm font-bold text-white"
+              className="flex-1 rounded-xl bg-[#3b82f6] py-3 text-sm font-medium text-white transition hover:bg-[#60a5fa]"
             >
               メニュー
             </button>
@@ -1098,7 +1050,7 @@ export function LearningApp({
     );
   }
 
-  // ============ QUIZ ============
+  // ── QUIZ ──────────────────────────────────────────────────────────────
   const q = deck[idx];
   const p = getProgress(progressMap, q.id);
 
@@ -1113,110 +1065,95 @@ export function LearningApp({
 
   const correctSet = new Set(q.correct_indices ?? [q.correct_index]);
 
-  const getOptionStyle = (i: number) => {
+  const getChoiceStyle = (i: number): string => {
     if (!answered) {
-      // 未回答
+      const locked = confidence === null;
       if (q.question_type === "multi" && multiSelected.has(i)) {
-        return { bg: "#1e3a5f", bd: "#3b82f6", fg: "#93c5fd" };
+        return "border-[#1e3a6e] bg-[#0a1e40] text-white";
       }
-      return { bg: "#0f1825", bd: "#2a3648", fg: "#cbd5e1" };
+      return locked
+        ? "border-[#1a1a1a] text-[#2a2a2a]"
+        : "border-[#222] text-[#ccc] hover:border-[#333] hover:text-white";
     }
-    // 回答済み
     const isCorrectOption = correctSet.has(i);
     const wasSelected = q.question_type === "multi" ? multiSelected.has(i) : i === picked;
-
-    if (isCorrectOption && wasSelected) return { bg: "#14532d", bd: "#16a34a", fg: "#bbf7d0" };
-    if (isCorrectOption && !wasSelected) return { bg: "#1a3a1a", bd: "#65a30d", fg: "#d9f99d" }; // missed correct (multi)
-    if (!isCorrectOption && wasSelected) return { bg: "#7f1d1d", bd: "#dc2626", fg: "#fecaca" };
-    return { bg: "#0f1825", bd: "#2a3648", fg: "#64748b" };
+    if (isCorrectOption && wasSelected)  return "border-[#14532d] bg-[#052e16] text-[#86efac]";
+    if (isCorrectOption && !wasSelected) return "border-[#0f2a1a] bg-[#031208] text-[#4ade80]";
+    if (!isCorrectOption && wasSelected) return "border-[#7f1d1d] bg-[#1c0606] text-[#f87171]";
+    return "border-[#111] text-[#2a2a2a]";
   };
 
   return (
-    <div className={page}>
-      {/* プログレスバー */}
-      <div className="mb-3 w-full max-w-[560px]">
-        <div className="mb-1.5 flex justify-between">
-          <span className="text-sm font-semibold text-muted">
+    <div className={wrap}>
+      {/* Progress */}
+      <div className="mb-4 w-full max-w-[520px]">
+        <div className="mb-2 flex items-center gap-3">
+          <span className="min-w-[40px] text-xs tabular-nums text-[#444]">
             {idx + 1} / {deck.length}
           </span>
-          <span className="text-[11px] text-muted2">{q.category_name}</span>
-        </div>
-        <div className="h-1 rounded bg-card2">
-          <div
-            className="h-full rounded bg-gradient-to-r from-primary to-sky-400"
-            style={{ width: `${((idx + 1) / deck.length) * 100}%` }}
-          />
+          <div className="h-px flex-1 overflow-hidden rounded-full bg-[#1a1a1a]">
+            <div
+              className="h-full rounded-full bg-[#3b82f6] transition-all"
+              style={{ width: `${((idx + 1) / deck.length) * 100}%` }}
+            />
+          </div>
         </div>
       </div>
 
-      <div className={card}>
-        {/* カテゴリ + 統計 */}
-        <div className="mb-3.5 flex items-center justify-between">
-          <div className="flex items-center gap-1.5">
-            <span
-              className="rounded-2xl px-3 py-1 text-[11px] font-bold"
-              style={{
-                background: q.category_color + "22",
-                border: `1px solid ${q.category_color}55`,
-                color: q.category_color,
-              }}
-            >
-              {q.category_name}
-            </span>
-            {q.question_type === "multi" && (
-              <span className="rounded-md bg-blue-900/40 px-2 py-0.5 text-[10px] font-bold text-blue-300">
-                複数選択
-              </span>
-            )}
-          </div>
-          <span className="text-[11px] text-muted2">
+      <div className="w-full max-w-[520px] rounded-2xl border border-[#1a1a1a] bg-[#111] p-5">
+        {/* Meta */}
+        <div className="mb-4 flex items-center gap-2">
+          <span className="h-2 w-2 shrink-0 rounded-full" style={{ background: q.category_color }} />
+          <span className="text-xs text-[#555]">{q.category_name}</span>
+          {q.question_type === "multi" && (
+            <span className="text-xs text-[#444]">· 複数選択</span>
+          )}
+          <span className="ml-auto text-xs text-[#333]">
             {p.correct_count + p.wrong_count === 0
               ? "初挑戦"
-              : `誤${totalWrong(q, p)} 連${p.consecutive_correct}`}
+              : `誤 ${totalWrong(q, p)} 連 ${p.consecutive_correct}`}
           </span>
         </div>
 
-        {/* 問題文 */}
-        <p className="mb-4 text-[15px] font-bold leading-8 text-slate-200">{q.question_text}</p>
+        {/* Question */}
+        <p className="mb-5 text-[15px] font-medium leading-8 text-[#e8e8e8]">
+          {q.question_text}
+        </p>
 
-        {/* コードブロック */}
+        {/* Code */}
         {q.code && (
-          <pre className="mb-4 overflow-x-auto rounded-xl bg-black/40 px-4 py-3 font-mono text-[12px] leading-6 text-slate-300">
+          <pre className="mb-5 overflow-x-auto rounded-xl bg-[#0d0d0d] px-4 py-3.5 font-mono text-xs leading-6 text-[#888]">
             <code>{q.code}</code>
           </pre>
         )}
 
-        {/* 想起モード: 選択肢を隠す */}
+        {/* Recall placeholder */}
         {choicesHidden ? (
-          <div className="mb-4 flex flex-col items-center gap-3 rounded-xl bg-card2 py-6">
-            <p className="text-sm font-bold text-slate-300">🧠 まず自分で考えてみよう</p>
-            <p className="text-xs text-muted2">答えが浮かんだら選択肢を表示する</p>
+          <div className="mb-5 rounded-xl border border-dashed border-[#222] py-8 text-center">
+            <p className="mb-1 text-sm text-[#555]">まず自分で考えてみよう</p>
+            <p className="mb-4 text-xs text-[#333]">答えが浮かんだら選択肢を表示する</p>
             <button
               onClick={() => setChoicesHidden(false)}
-              className="rounded-xl bg-gradient-to-br from-primary to-primary2 px-6 py-2.5 text-sm font-bold text-white"
+              className="rounded-lg bg-[#3b82f6] px-5 py-2 text-sm font-medium text-white transition hover:bg-[#60a5fa]"
             >
-              選択肢を表示する
+              選択肢を表示
             </button>
           </div>
         ) : (
           <>
-            {/* 確信度（回答前に選択する） */}
+            {/* Confidence */}
             {!answered && (
-              <div
-                className="mb-3.5 rounded-xl p-2.5 transition-all"
-                style={
-                  confidence === null
-                    ? { background: "rgba(234,179,8,0.07)", border: "1px solid rgba(234,179,8,0.25)" }
-                    : { background: "transparent", border: "1px solid transparent" }
-                }
-              >
+              <div className="mb-4">
                 <p
-                  className="mb-1.5 text-xs font-bold"
-                  style={{ color: confidence === null ? "#fbbf24" : "#64748b" }}
+                  className="mb-2 text-[10px] font-semibold uppercase tracking-widest transition"
+                  style={{ color: confidence === null ? "#92400e" : "#3a3a3a" }}
                 >
-                  {confidence === null ? "① まず確信度を選ぶ" : "確信度を選択済み"}
+                  {confidence === null ? "① 確信度を先に選ぶ" : "確信度"}
                 </p>
-                <div className="flex gap-1.5">
+                <div
+                  className="flex overflow-hidden rounded-xl border transition-colors"
+                  style={{ borderColor: confidence === null ? "#3d2000" : "#222" }}
+                >
                   {CONFIDENCE_LABELS.map((label, i) => {
                     const level = i + 1;
                     const on = confidence === level;
@@ -1224,14 +1161,19 @@ export function LearningApp({
                     return (
                       <button
                         key={level}
-                        onClick={() => handleConfidence(level)}
-                        className="flex-1 rounded-xl border-2 px-0.5 py-2 text-[11px] font-bold transition-colors"
+                        onClick={() => setConfidence(level)}
+                        className="flex flex-1 items-center justify-center gap-1.5 border-r border-[#222] py-2.5 text-xs font-medium last:border-r-0 transition"
                         style={{
-                          borderColor: on ? color : "#2a3648",
-                          background: on ? color + "26" : "transparent",
-                          color: on ? color : "#64748b",
+                          background: on ? color + "18" : "transparent",
+                          color: on ? color : "#444",
                         }}
                       >
+                        {on && (
+                          <span
+                            className="h-1.5 w-1.5 rounded-full"
+                            style={{ background: color }}
+                          />
+                        )}
                         {label}
                       </button>
                     );
@@ -1240,98 +1182,97 @@ export function LearningApp({
               </div>
             )}
 
-            {/* 選択肢 */}
-            {q.options.map((choice, i) => {
-              const { bg, bd, fg } = getOptionStyle(i);
-              const locked = !answered && confidence === null;
-              return (
-                <button
-                  key={i}
-                  onClick={() =>
-                    q.question_type === "multi" ? toggleMulti(i) : answerSingle(i)
-                  }
-                  disabled={answered || locked}
-                  className="mb-2 block w-full rounded-xl border-2 px-3.5 py-3 text-left transition-opacity"
-                  style={{
-                    background: bg,
-                    borderColor: bd,
-                    cursor: answered || locked ? "default" : "pointer",
-                    opacity: locked ? 0.4 : 1,
-                  }}
-                >
-                  <span className="text-[13px] leading-relaxed" style={{ color: fg }}>
-                    <b className="mr-2">{"ABCD"[i]}.</b>
+            {/* Choices */}
+            <div className="space-y-2">
+              {q.options.map((choice, i) => {
+                const locked = !answered && confidence === null;
+                return (
+                  <button
+                    key={i}
+                    onClick={() =>
+                      q.question_type === "multi" ? toggleMulti(i) : answerSingle(i)
+                    }
+                    disabled={answered || locked}
+                    className={`block w-full rounded-xl border px-4 py-3.5 text-left text-sm leading-relaxed transition ${getChoiceStyle(i)}`}
+                    style={{ opacity: locked ? 0.3 : 1 }}
+                  >
+                    <span className="mr-2.5 font-semibold">{"ABCD"[i]}.</span>
                     {choice}
-                  </span>
-                </button>
-              );
-            })}
+                  </button>
+                );
+              })}
+            </div>
 
-            {/* 複数選択の回答ボタン */}
+            {/* Multi submit */}
             {q.question_type === "multi" && !answered && (
               <button
                 onClick={submitMulti}
                 disabled={multiSelected.size === 0 || confidence === null}
-                className="mb-2 w-full rounded-xl bg-gradient-to-br from-blue-600 to-blue-700 py-3 text-sm font-bold text-white disabled:from-slate-700 disabled:to-slate-700"
+                className="mt-3 w-full rounded-xl bg-[#3b82f6] py-3 text-sm font-medium text-white transition hover:bg-[#60a5fa] disabled:bg-[#161616] disabled:text-[#333]"
               >
-                回答する（{multiSelected.size}個選択中）
+                回答する（{multiSelected.size} 選択中）
               </button>
             )}
           </>
         )}
 
-        {/* 回答後: 解説 + メモ + 次へ */}
+        {/* After answer */}
         {answered && (
-          <>
+          <div className="mt-5 space-y-4">
+            {/* Result banner */}
             <div
-              className="my-3.5 rounded-xl px-4 py-3.5"
+              className="rounded-xl border px-4 py-3"
               style={{
-                background: isCorrect ? "#14532d33" : "#7f1d1d33",
-                border: `1px solid ${isCorrect ? "#16a34a" : "#dc2626"}44`,
+                borderColor: isCorrect ? "#14532d" : "#7f1d1d",
+                background: isCorrect ? "#052e1620" : "#1c060620",
               }}
             >
-              <p
-                className="mb-3 text-sm font-extrabold"
-                style={{ color: isCorrect ? "#86efac" : "#fca5a5" }}
-              >
-                {isCorrect ? "✓ 正解！" : "✗ 不正解"}
+              <div className="mb-0.5 flex items-center gap-2">
+                <span
+                  className="text-sm font-semibold"
+                  style={{ color: isCorrect ? "#86efac" : "#f87171" }}
+                >
+                  {isCorrect ? "正解" : "不正解"}
+                </span>
                 {confidence !== null && (
                   <span
-                    className="ml-2 text-[11px] font-bold"
+                    className="text-xs"
                     style={{ color: CONFIDENCE_COLORS[confidence - 1] }}
                   >
-                    （{CONFIDENCE_LABELS[confidence - 1]}）
+                    · {CONFIDENCE_LABELS[confidence - 1]}
                   </span>
                 )}
-              </p>
-              {confidence === 3 && isCorrect && (
-                <p className="mb-3 text-center text-[11px] text-amber-400">
-                  ⚠ まぐれ当たり — 連続正解をリセットしました
-                </p>
-              )}
+                {confidence === 3 && isCorrect && (
+                  <span className="ml-auto text-[10px] text-[#92400e]">まぐれ当たり</span>
+                )}
+              </div>
+            </div>
+
+            {/* Explanation */}
+            <div className="rounded-xl border border-[#1a1a1a] bg-[#0d0d0d] p-4">
               {q.explanation_data ? (
                 <RichExplanation data={q.explanation_data} />
               ) : (
-                <p className="text-[13px] leading-8 text-slate-300">{q.explanation}</p>
+                <p className="text-sm leading-7 text-[#aaa]">{q.explanation}</p>
               )}
             </div>
 
-            {/* メモ */}
-            <p className="mb-1.5 text-xs font-bold text-slate-300">メモ</p>
+            {/* Memo */}
             <textarea
               value={memoText}
               onChange={(e) => setMemoText(e.target.value)}
-              placeholder="気づき・覚え方・自分の言葉での説明を残す"
-              className="mb-3.5 min-h-[70px] w-full resize-y rounded-xl border border-border bg-card2 px-3 py-2.5 text-[13px] text-slate-200 outline-none focus:border-primary2"
+              placeholder="気づき・覚え方・自分の言葉でのメモ"
+              className="w-full resize-y rounded-xl border border-[#1a1a1a] bg-[#0d0d0d] px-4 py-3 text-xs leading-relaxed text-[#888] outline-none placeholder:text-[#2a2a2a] focus:border-[#333]"
+              rows={3}
             />
 
             <button
               onClick={saveMemoAndNext}
-              className="w-full rounded-xl bg-gradient-to-br from-primary to-primary2 py-4 text-sm font-bold text-white"
+              className="w-full rounded-xl bg-[#3b82f6] py-4 text-sm font-semibold text-white transition hover:bg-[#60a5fa]"
             >
-              {idx + 1 >= deck.length ? "結果を見る 🏁" : "次の問題へ →"}
+              {idx + 1 >= deck.length ? "結果を見る" : "次へ →"}
             </button>
-          </>
+          </div>
         )}
       </div>
     </div>
