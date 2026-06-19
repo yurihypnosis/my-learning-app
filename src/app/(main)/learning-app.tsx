@@ -18,7 +18,7 @@ import {
   totalWrong,
   type ProgressMap,
 } from "@/lib/quiz/selection";
-import { buildCSV, downloadCSV } from "@/lib/quiz/csv";
+import { buildCSV, downloadCSV, type ExportMode } from "@/lib/quiz/csv";
 import {
   type UserGoal,
   loadGoal,
@@ -131,7 +131,7 @@ export function LearningApp({
   const [sessionResults, setSessionResults] = useState<SessionResult[]>([]);
   const [memoText, setMemoText] = useState("");
   const [csvText, setCsvText] = useState("");
-  const [onlyMemo, setOnlyMemo] = useState(true);
+  const [exportMode, setExportMode] = useState<ExportMode>("weak");
   const [copyMsg, setCopyMsg] = useState("");
 
   // 目標設定
@@ -679,7 +679,7 @@ export function LearningApp({
             </button>
             <button
               onClick={() => {
-                setCsvText(buildCSV(questions, progressMap, now, onlyMemo));
+                setCsvText(buildCSV(questions, progressMap, now, exportMode));
                 setCopyMsg("");
                 setScreen("export");
               }}
@@ -695,13 +695,29 @@ export function LearningApp({
 
   // ============ EXPORT ============
   if (screen === "export") {
+    const weakCount = questions.filter((q) => {
+      const p = getProgress(progressMap, q.id);
+      if (p.correct_count + p.wrong_count === 0 && q.initial_wrong_weight === 0) return false;
+      const attempts = p.correct_count + p.wrong_count;
+      if (attempts === 0) return true;
+      const accuracy = p.correct_count / attempts;
+      const selfScore = p.last_confidence === 1 ? 1.0 : p.last_confidence === 2 ? 0.5 : 0.0;
+      const streakBonus = Math.min(p.consecutive_correct, 3) / 30;
+      return Math.min(1, accuracy * 0.6 + selfScore * 0.3 + streakBonus) < 0.5;
+    }).length;
     const memoCount = questions.filter((q) =>
       getProgress(progressMap, q.id).memo.trim()
     ).length;
 
-    const rebuild = (only: boolean) => {
-      setOnlyMemo(only);
-      setCsvText(buildCSV(questions, progressMap, now, only));
+    const MODES: { key: ExportMode; label: string; count: number }[] = [
+      { key: "weak", label: "🔥 苦手問題", count: weakCount },
+      { key: "memo", label: "📝 メモあり", count: memoCount },
+      { key: "all",  label: "全問題",     count: questions.length },
+    ];
+
+    const rebuild = (m: ExportMode) => {
+      setExportMode(m);
+      setCsvText(buildCSV(questions, progressMap, now, m));
       setCopyMsg("");
     };
 
@@ -719,29 +735,41 @@ export function LearningApp({
         <div className={card}>
           <h2 className="mb-1.5 text-lg font-extrabold text-slate-100">📋 書き出し（CSV）</h2>
           <p className="mb-4 text-xs text-muted2">
-            メモあり {memoCount}問 ／ 全{questions.length}問。CSVをダウンロード、または下のボタンでコピーできます。
+            習得度50%未満を苦手と判定。CSVをダウンロードまたはコピーできます。
           </p>
 
+          {/* フィルター3択 */}
           <div className="mb-3.5 flex gap-2">
-            <button
-              onClick={() => rebuild(true)}
-              className="flex-1 rounded-xl py-2.5 text-sm font-bold"
-              style={{ background: onlyMemo ? "#2563eb" : "#1e2d3d", color: onlyMemo ? "#fff" : "#94a3b8" }}
-            >
-              メモのある問題だけ
-            </button>
-            <button
-              onClick={() => rebuild(false)}
-              className="flex-1 rounded-xl py-2.5 text-sm font-bold"
-              style={{ background: !onlyMemo ? "#2563eb" : "#1e2d3d", color: !onlyMemo ? "#fff" : "#94a3b8" }}
-            >
-              全問題
-            </button>
+            {MODES.map(({ key, label, count }) => {
+              const on = exportMode === key;
+              return (
+                <button
+                  key={key}
+                  onClick={() => rebuild(key)}
+                  className="flex-1 rounded-xl py-2.5 text-[12px] font-bold"
+                  style={{
+                    background: on ? (key === "weak" ? "#7f1d1d" : "#1e3a5f") : "#1e2d3d",
+                    color: on ? (key === "weak" ? "#fca5a5" : "#93c5fd") : "#64748b",
+                    border: on ? `1px solid ${key === "weak" ? "#dc262644" : "#2563eb44"}` : "1px solid transparent",
+                  }}
+                >
+                  {label}
+                  <span className="ml-1 opacity-70">({count})</span>
+                </button>
+              );
+            })}
           </div>
+
+          {exportMode === "weak" && weakCount === 0 && (
+            <div className="mb-4 rounded-xl bg-emerald-900/30 px-4 py-3 text-center">
+              <p className="text-sm font-bold text-emerald-400">🎉 苦手問題なし！</p>
+              <p className="text-[11px] text-emerald-600">全問題の習得度が50%以上です</p>
+            </div>
+          )}
 
           <button
             onClick={() =>
-              downloadCSV(`${currentSubjectSlug}-export-${onlyMemo ? "memo" : "all"}.csv`, csvText)
+              downloadCSV(`${currentSubjectSlug}-${exportMode}.csv`, csvText)
             }
             className="mb-2 w-full rounded-xl bg-gradient-to-br from-emerald-600 to-emerald-700 py-3.5 text-sm font-bold text-white"
           >
