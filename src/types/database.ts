@@ -109,6 +109,36 @@ export interface Database {
           },
         ];
       };
+      answer_events: {
+        Row: {
+          id: string;
+          user_id: string;
+          question_id: string;
+          category_id: string;
+          category_name: string;
+          category_color: string;
+          subject_slug: string;
+          is_correct: boolean;
+          confidence: number | null;
+          answered_at: string;
+        };
+        Insert: {
+          user_id: string;
+          question_id: string;
+          category_id: string;
+          category_name: string;
+          category_color?: string;
+          subject_slug: string;
+          is_correct: boolean;
+          confidence?: number | null;
+          answered_at?: string;
+        };
+        Update: {
+          is_correct?: boolean;
+          confidence?: number | null;
+        };
+        Relationships: [];
+      };
       user_question_progress: {
         Row: {
           id: string;

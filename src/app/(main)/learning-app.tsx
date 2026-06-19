@@ -154,6 +154,19 @@ export function LearningApp({
 
   const supabase = useMemo(() => createClient(), []);
 
+  const recordAnswer = (q: QuizQuestion, isCorrect: boolean, conf: number | null) => {
+    supabase.from("answer_events").insert({
+      user_id: userId,
+      question_id: q.id,
+      category_id: q.category_id,
+      category_name: q.category_name,
+      category_color: q.category_color,
+      subject_slug: currentSubjectSlug,
+      is_correct: isCorrect,
+      confidence: conf,
+    }).then(() => {});
+  };
+
   const persist = async (qid: string, partial: Partial<Progress>) => {
     const cur = getProgress(progressMap, qid);
     const next: Progress = { ...cur, ...partial };
@@ -238,6 +251,7 @@ export function LearningApp({
       { correct: isCorrect, category: q.category_name, color: q.category_color },
     ]);
     persist(q.id, partial);
+    recordAnswer(q, isCorrect, confidence);
   };
 
   // 複数回答の選択切り替え
@@ -280,6 +294,7 @@ export function LearningApp({
       { correct: isCorrect, category: q.category_name, color: q.category_color },
     ]);
     persist(q.id, partial);
+    recordAnswer(q, isCorrect, confidence);
   };
 
   const handleConfidence = (level: number) => {
@@ -624,12 +639,20 @@ export function LearningApp({
             スタート（{Math.min(count, eligible.length)}問）
           </button>
 
-          <button
-            onClick={() => router.push("/roadmap")}
-            className="mb-2 w-full rounded-xl bg-card2 py-3 text-sm font-bold text-slate-300"
-          >
-            🗺 学習ロードマップ
-          </button>
+          <div className="mb-2 flex gap-2">
+            <button
+              onClick={() => router.push("/roadmap")}
+              className="flex-1 rounded-xl bg-card2 py-3 text-sm font-bold text-slate-300"
+            >
+              🗺 ロードマップ
+            </button>
+            <button
+              onClick={() => router.push("/log")}
+              className="flex-1 rounded-xl bg-card2 py-3 text-sm font-bold text-slate-300"
+            >
+              📅 学習ログ
+            </button>
+          </div>
           <div className="flex gap-2">
             <button
               onClick={() => setScreen("analysis")}
