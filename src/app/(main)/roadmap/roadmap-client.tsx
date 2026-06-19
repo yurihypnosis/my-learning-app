@@ -42,7 +42,7 @@ interface Props {
 const MS_COLOR = {
   "in-progress": "#f59e0b",
   "next":        "#3b82f6",
-  "upcoming":    "#333333",
+  "upcoming":    "#555e70",
 } as const;
 
 export function RoadmapClient({ acePassProb }: Props) {
@@ -56,11 +56,11 @@ export function RoadmapClient({ acePassProb }: Props) {
         <div className="mb-8 flex items-center justify-between">
           <div>
             <h1 className="text-base font-semibold text-white">学習ロードマップ</h1>
-            <p className="text-xs text-[#444]">DevOpsならユウ — 設計・自動化・組織浸透</p>
+            <p className="text-xs text-[#555e70]">DevOpsならユウ — 設計・自動化・組織浸透</p>
           </div>
           <Link
             href="/"
-            className="text-xs text-[#444] transition hover:text-[#888]"
+            className="text-xs text-[#555e70] transition hover:text-[#8892a4]"
           >
             ← 戻る
           </Link>
@@ -74,8 +74,8 @@ export function RoadmapClient({ acePassProb }: Props) {
             const isCurrent = ph.status === "current";
             const isFuture = ph.status === "future";
 
-            const dotColor = isDone ? "#22c55e" : isCurrent ? "#3b82f6" : "#222";
-            const dotBorder = isCurrent ? "2px solid #3b82f6" : isDone ? "none" : "1px solid #222";
+            const dotColor = isDone ? "#22c55e" : isCurrent ? "#3b82f6" : "#2a2f3f";
+            const dotBorder = isCurrent ? "2px solid #3b82f6" : isDone ? "none" : "1px solid #2a2f3f";
 
             return (
               <div key={ph.id} className="relative">
@@ -88,8 +88,8 @@ export function RoadmapClient({ acePassProb }: Props) {
                       background: isDone
                         ? "linear-gradient(to bottom, #22c55e33, #22c55e11)"
                         : isCurrent
-                          ? "linear-gradient(to bottom, #3b82f633, #1a1a1a)"
-                          : "#1a1a1a",
+                          ? "linear-gradient(to bottom, #3b82f633, #1a1d27)"
+                          : "#2a2f3f",
                     }}
                   />
                 )}
@@ -103,7 +103,7 @@ export function RoadmapClient({ acePassProb }: Props) {
                     background: dotColor,
                     border: dotBorder,
                     boxShadow: isCurrent ? "0 0 12px #3b82f644" : "none",
-                    color: isFuture ? "#333" : "#fff",
+                    color: isFuture ? "#555e70" : "#fff",
                   }}
                 >
                   {isDone ? "✓" : ph.id}
@@ -113,9 +113,9 @@ export function RoadmapClient({ acePassProb }: Props) {
                 <div
                   className="mb-5 rounded-xl border p-4 transition-opacity"
                   style={{
-                    borderColor: isCurrent ? "#1e3a6e" : "#1a1a1a",
-                    background: isCurrent ? "#0a1628" : "#0d0d0d",
-                    opacity: isFuture ? 0.45 : 1,
+                    borderColor: isCurrent ? "#1e3a6e" : "#2a2f3f",
+                    background: isCurrent ? "#0a1628" : "#141720",
+                    opacity: isFuture ? 0.5 : 1,
                   }}
                 >
                   <div className="mb-1 flex items-center justify-between gap-2">
@@ -126,7 +126,7 @@ export function RoadmapClient({ acePassProb }: Props) {
                       >
                         {ph.label}
                       </span>
-                      <span className="text-[10px] text-[#333]">{ph.period}</span>
+                      <span className="text-[10px] text-[#555e70]">{ph.period}</span>
                     </div>
                     {isCurrent && (
                       <span className="rounded-full border border-[#1e3a6e] bg-[#0d1f3c] px-2 py-0.5 text-[9px] font-semibold text-[#3b82f6]">
@@ -137,19 +137,19 @@ export function RoadmapClient({ acePassProb }: Props) {
 
                   <p
                     className="mb-1 text-sm font-medium"
-                    style={{ color: isFuture ? "#444" : "#e0e0e0" }}
+                    style={{ color: isFuture ? "#8892a4" : "#e8eaf0" }}
                   >
                     {ph.title}
                   </p>
                   {ph.subtitle && (
-                    <p className="mb-3 text-xs text-[#555]">{ph.subtitle}</p>
+                    <p className="mb-3 text-xs text-[#8892a4]">{ph.subtitle}</p>
                   )}
 
                   {ph.body && (
                     <ul className="mt-2 space-y-1">
                       {ph.body.map((item, j) => (
-                        <li key={j} className="flex items-start gap-2 text-xs text-[#555]">
-                          <span className="mt-[5px] h-1 w-1 shrink-0 rounded-full bg-[#333]" />
+                        <li key={j} className="flex items-start gap-2 text-xs text-[#8892a4]">
+                          <span className="mt-[5px] h-1 w-1 shrink-0 rounded-full bg-[#3a4050]" />
                           {item}
                           {isDone && <span className="text-[#22c55e]">✓</span>}
                         </li>
@@ -164,7 +164,7 @@ export function RoadmapClient({ acePassProb }: Props) {
                         return (
                           <div
                             key={j}
-                            className="flex items-start gap-3 rounded-xl border border-[#111] bg-[#070707] px-3 py-2.5"
+                            className="flex items-start gap-3 rounded-xl border border-[#2a2f3f] bg-[#0f1117] px-3 py-2.5"
                           >
                             <span
                               className="mt-1.5 h-1.5 w-1.5 shrink-0 rounded-full"
@@ -172,7 +172,7 @@ export function RoadmapClient({ acePassProb }: Props) {
                             />
                             <div className="min-w-0 flex-1">
                               <div className="flex items-center justify-between gap-2">
-                                <p className="text-xs font-medium text-[#ccc]">{ms.title}</p>
+                                <p className="text-xs font-medium text-[#c0c8d8]">{ms.title}</p>
                                 {ms.ms === "in-progress" && (
                                   <span className="shrink-0 text-[9px] font-semibold text-[#f59e0b]">
                                     進行中
@@ -184,10 +184,10 @@ export function RoadmapClient({ acePassProb }: Props) {
                                   </span>
                                 )}
                               </div>
-                              <p className="text-[11px] text-[#444]">{ms.detail}</p>
+                              <p className="text-[11px] text-[#555e70]">{ms.detail}</p>
                               {isAce && acePassProb !== null && (
                                 <div className="mt-2 flex items-center gap-2">
-                                  <div className="h-px flex-1 overflow-hidden rounded-full bg-[#111]">
+                                  <div className="h-px flex-1 overflow-hidden rounded-full bg-[#2a2f3f]">
                                     <div
                                       className="h-full rounded-full transition-all"
                                       style={{
@@ -217,7 +217,7 @@ export function RoadmapClient({ acePassProb }: Props) {
                                 </div>
                               )}
                               {isAce && acePassProb === null && (
-                                <p className="mt-1 text-[10px] text-[#2a2a2a]">
+                                <p className="mt-1 text-[10px] text-[#3a4050]">
                                   GCP ACE を演習すると確率が表示されます
                                 </p>
                               )}
@@ -235,7 +235,7 @@ export function RoadmapClient({ acePassProb }: Props) {
 
         <Link
           href="/"
-          className="block w-full rounded-xl border border-[#1a1a1a] py-3 text-center text-sm text-[#444] transition hover:border-[#333] hover:text-[#888]"
+          className="block w-full rounded-xl border border-[#2a2f3f] py-3 text-center text-sm text-[#555e70] transition hover:border-[#3a4050] hover:text-[#8892a4]"
         >
           メニューに戻る
         </Link>

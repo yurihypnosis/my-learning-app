@@ -129,7 +129,7 @@ function WeeklyBar({ days, todayKey }: { days: DayEntry[]; todayKey: string }) {
         const pct = b.count > 0 ? Math.max((b.count / max) * 100, 8) : 0;
         return (
           <div key={b.key} className="flex flex-1 flex-col items-center gap-1">
-            <span className="text-[9px] text-[#333]">{b.count > 0 ? b.count : ""}</span>
+            <span className="text-[9px] text-[#555e70]">{b.count > 0 ? b.count : ""}</span>
             <div className="flex w-full flex-1 items-end">
               <div
                 className="w-full rounded-sm transition-all"
@@ -142,7 +142,7 @@ function WeeklyBar({ days, todayKey }: { days: DayEntry[]; todayKey: string }) {
             </div>
             <span
               className="text-[9px] font-medium"
-              style={{ color: isToday ? "#3b82f6" : "#333" }}
+              style={{ color: isToday ? "#3b82f6" : "#555e70" }}
             >
               {b.dow}
             </span>
@@ -174,11 +174,11 @@ export function LogClient({ events, todayKey, yesterdayKey }: Props) {
         <div className="mb-6 flex items-center justify-between">
           <div>
             <h1 className="text-base font-semibold text-white">学習ログ</h1>
-            <p className="text-xs text-[#444]">直近 90 日</p>
+            <p className="text-xs text-[#555e70]">直近 90 日</p>
           </div>
           <Link
             href="/"
-            className="text-xs text-[#444] transition hover:text-[#888]"
+            className="text-xs text-[#555e70] transition hover:text-[#8892a4]"
           >
             ← 戻る
           </Link>
@@ -186,26 +186,26 @@ export function LogClient({ events, todayKey, yesterdayKey }: Props) {
 
         {/* Stats */}
         <div className="mb-6 grid grid-cols-3 gap-2">
-          <div className="rounded-xl border border-[#1a1a1a] bg-[#0d0d0d] py-4 text-center">
+          <div className="rounded-xl border border-[#2a2f3f] bg-[#141720] py-4 text-center">
             <p className="text-xl font-bold tabular-nums text-white">
               {streak > 0 ? streak : "—"}
             </p>
-            <p className="text-[10px] text-[#333]">日連続</p>
+            <p className="text-[10px] text-[#555e70]">日連続</p>
           </div>
-          <div className="rounded-xl border border-[#1a1a1a] bg-[#0d0d0d] py-4 text-center">
+          <div className="rounded-xl border border-[#2a2f3f] bg-[#141720] py-4 text-center">
             <p className="text-xl font-bold tabular-nums text-white">{days.length}</p>
-            <p className="text-[10px] text-[#333]">日間</p>
+            <p className="text-[10px] text-[#555e70]">日間</p>
           </div>
-          <div className="rounded-xl border border-[#1a1a1a] bg-[#0d0d0d] py-4 text-center">
+          <div className="rounded-xl border border-[#2a2f3f] bg-[#141720] py-4 text-center">
             <p className="text-xl font-bold tabular-nums text-white">{events.length}</p>
-            <p className="text-[10px] text-[#333]">問演習</p>
+            <p className="text-[10px] text-[#555e70]">問演習</p>
           </div>
         </div>
 
         {/* Weekly chart */}
         {days.length > 0 && (
-          <div className="mb-6 rounded-xl border border-[#1a1a1a] bg-[#0d0d0d] px-4 py-4">
-            <p className="mb-3 text-[10px] font-semibold uppercase tracking-widest text-[#3a3a3a]">
+          <div className="mb-6 rounded-xl border border-[#2a2f3f] bg-[#141720] px-4 py-4">
+            <p className="mb-3 text-[10px] font-semibold uppercase tracking-widest text-[#555e70]">
               直近 7 日間
             </p>
             <WeeklyBar days={days} todayKey={todayKey} />
@@ -214,9 +214,9 @@ export function LogClient({ events, todayKey, yesterdayKey }: Props) {
 
         {/* Daily list */}
         {days.length === 0 ? (
-          <div className="rounded-xl border border-[#1a1a1a] py-12 text-center">
-            <p className="text-sm text-[#333]">まだ記録がありません</p>
-            <p className="mt-1 text-xs text-[#222]">問題を解くと自動的に記録されます</p>
+          <div className="rounded-xl border border-[#2a2f3f] py-12 text-center">
+            <p className="text-sm text-[#8892a4]">まだ記録がありません</p>
+            <p className="mt-1 text-xs text-[#555e70]">問題を解くと自動的に記録されます</p>
           </div>
         ) : (
           <div className="space-y-2">
@@ -224,11 +224,11 @@ export function LogClient({ events, todayKey, yesterdayKey }: Props) {
               const acc = Math.round((day.correct / day.total) * 100);
               const accColor = acc >= 70 ? "#22c55e" : acc >= 50 ? "#f59e0b" : "#ef4444";
               return (
-                <div key={day.dateKey} className="rounded-xl border border-[#1a1a1a] bg-[#0d0d0d] px-4 py-3.5">
+                <div key={day.dateKey} className="rounded-xl border border-[#2a2f3f] bg-[#141720] px-4 py-3.5">
                   {/* Day header */}
                   <div className="mb-2.5 flex items-center justify-between">
-                    <p className="text-xs font-medium text-[#ccc]">{day.label}</p>
-                    <p className="text-[10px] text-[#333]">
+                    <p className="text-xs font-medium text-[#c0c8d8]">{day.label}</p>
+                    <p className="text-[10px] text-[#555e70]">
                       {day.firstAt} — {day.lastAt}
                     </p>
                   </div>
@@ -237,7 +237,7 @@ export function LogClient({ events, todayKey, yesterdayKey }: Props) {
                   <div className="mb-2.5 flex items-center gap-4">
                     <span className="text-sm font-semibold text-white">{day.total} 問</span>
                     <div className="flex items-center gap-2">
-                      <div className="h-px w-16 overflow-hidden rounded-full bg-[#1a1a1a]">
+                      <div className="h-px w-16 overflow-hidden rounded-full bg-[#2a2f3f]">
                         <div
                           className="h-full rounded-full"
                           style={{ width: `${acc}%`, background: accColor }}
@@ -247,7 +247,7 @@ export function LogClient({ events, todayKey, yesterdayKey }: Props) {
                         {acc}%
                       </span>
                     </div>
-                    <span className="text-[10px] text-[#333]">
+                    <span className="text-[10px] text-[#555e70]">
                       ✓{day.correct} ✗{day.total - day.correct}
                     </span>
                   </div>
@@ -258,7 +258,7 @@ export function LogClient({ events, todayKey, yesterdayKey }: Props) {
                       {day.subjects.map((s) => (
                         <span
                           key={s.slug}
-                          className="rounded-md border border-[#1e1e1e] px-2 py-0.5 text-[10px] text-[#444]"
+                          className="rounded-md border border-[#2a2f3f] px-2 py-0.5 text-[10px] text-[#555e70]"
                         >
                           {SUBJECT_LABELS[s.slug] ?? s.slug} {s.count}
                         </span>
@@ -274,13 +274,13 @@ export function LogClient({ events, todayKey, yesterdayKey }: Props) {
                           className="h-1.5 w-1.5 shrink-0 rounded-full"
                           style={{ background: c.color }}
                         />
-                        <span className="text-[10px] text-[#555]">
+                        <span className="text-[10px] text-[#8892a4]">
                           {c.name} {c.count}
                         </span>
                       </div>
                     ))}
                     {day.categories.length > 6 && (
-                      <span className="text-[10px] text-[#333]">
+                      <span className="text-[10px] text-[#555e70]">
                         +{day.categories.length - 6}
                       </span>
                     )}
@@ -293,7 +293,7 @@ export function LogClient({ events, todayKey, yesterdayKey }: Props) {
 
         <Link
           href="/"
-          className="mt-4 block w-full rounded-xl border border-[#1a1a1a] py-3 text-center text-sm text-[#444] transition hover:border-[#333] hover:text-[#888]"
+          className="mt-4 block w-full rounded-xl border border-[#2a2f3f] py-3 text-center text-sm text-[#555e70] transition hover:border-[#3a4050] hover:text-[#8892a4]"
         >
           メニューに戻る
         </Link>

@@ -39,9 +39,9 @@ function arraysEqual(a: number[], b: number[]): boolean {
 }
 
 function RichExplanation({ data }: { data: ExplanationData }) {
-  const lbl = "mb-2 text-[10px] font-semibold uppercase tracking-widest text-[#444]";
+  const lbl = "mb-2 text-[10px] font-semibold uppercase tracking-widest text-[#555e70]";
   return (
-    <div className="space-y-5 text-sm leading-7 text-[#aaa]">
+    <div className="space-y-5 text-sm leading-7 text-[#c0c8d8]">
       <div>
         <p className={lbl}>何を問われているか</p>
         <p>{data.asked}</p>
@@ -53,9 +53,9 @@ function RichExplanation({ data }: { data: ExplanationData }) {
           <div className="space-y-2">
             {data.terms.map(([term, def], i) => (
               <div key={i} className="flex flex-wrap gap-x-2">
-                <span className="font-semibold text-[#e0e0e0]">{term}</span>
-                <span className="text-[#555]">—</span>
-                <span className="text-[#888]">{def}</span>
+                <span className="font-semibold text-[#e8eaf0]">{term}</span>
+                <span className="text-[#8892a4]">—</span>
+                <span className="text-[#8892a4]">{def}</span>
               </div>
             ))}
           </div>
@@ -80,7 +80,7 @@ function RichExplanation({ data }: { data: ExplanationData }) {
           <div className="space-y-2">
             {data.opt.map((o, i) => (
               <div key={i} className="flex gap-3">
-                <span className="w-4 shrink-0 font-semibold text-[#444]">{"ABCD"[i]}.</span>
+                <span className="w-4 shrink-0 font-semibold text-[#555e70]">{"ABCD"[i]}.</span>
                 <span>{o}</span>
               </div>
             ))}
@@ -224,39 +224,6 @@ export function LearningApp({
     setScreen("quiz");
   };
 
-  const answerSingle = (choiceIdx: number) => {
-    if (answered || confidence === null) return;
-    const q = deck[idx];
-    const isCorrect = choiceIdx === q.correct_index;
-    const magure = isCorrect && confidence === 3;
-    setPicked(choiceIdx);
-    setAnswered(true);
-    const cur = getProgress(progressMap, q.id);
-    const partial: Partial<Progress> = isCorrect
-      ? {
-          correct_count: cur.correct_count + 1,
-          consecutive_correct: magure ? 0 : cur.consecutive_correct + 1,
-          last_is_correct: true,
-          last_selected_index: choiceIdx,
-          last_answered_at: new Date().toISOString(),
-          last_confidence: confidence,
-        }
-      : {
-          wrong_count: cur.wrong_count + 1,
-          consecutive_correct: 0,
-          last_is_correct: false,
-          last_selected_index: choiceIdx,
-          last_answered_at: new Date().toISOString(),
-          last_confidence: confidence,
-        };
-    setSessionResults((r) => [
-      ...r,
-      { correct: isCorrect, category: q.category_name, color: q.category_color },
-    ]);
-    persist(q.id, partial);
-    recordAnswer(q, isCorrect, confidence);
-  };
-
   const toggleMulti = (i: number) => {
     if (answered) return;
     setMultiSelected((prev) => {
@@ -266,36 +233,36 @@ export function LearningApp({
     });
   };
 
-  const submitMulti = () => {
-    if (answered || multiSelected.size === 0 || confidence === null) return;
+  const submitAnswer = () => {
+    if (answered || confidence === null) return;
     const q = deck[idx];
-    const selected = Array.from(multiSelected).sort((a, b) => a - b);
-    const expected = [...(q.correct_indices ?? [q.correct_index])].sort((a, b) => a - b);
-    const isCorrect = arraysEqual(selected, expected);
-    const magure = isCorrect && confidence === 3;
-    setAnswered(true);
-    const cur = getProgress(progressMap, q.id);
-    const partial: Partial<Progress> = isCorrect
-      ? {
-          correct_count: cur.correct_count + 1,
-          consecutive_correct: magure ? 0 : cur.consecutive_correct + 1,
-          last_is_correct: true,
-          last_answered_at: new Date().toISOString(),
-          last_confidence: confidence,
-        }
-      : {
-          wrong_count: cur.wrong_count + 1,
-          consecutive_correct: 0,
-          last_is_correct: false,
-          last_answered_at: new Date().toISOString(),
-          last_confidence: confidence,
-        };
-    setSessionResults((r) => [
-      ...r,
-      { correct: isCorrect, category: q.category_name, color: q.category_color },
-    ]);
-    persist(q.id, partial);
-    recordAnswer(q, isCorrect, confidence);
+    if (q.question_type === "multi") {
+      if (multiSelected.size === 0) return;
+      const selected = Array.from(multiSelected).sort((a, b) => a - b);
+      const expected = [...(q.correct_indices ?? [q.correct_index])].sort((a, b) => a - b);
+      const isCorrect = arraysEqual(selected, expected);
+      const magure = isCorrect && confidence === 3;
+      setAnswered(true);
+      const cur = getProgress(progressMap, q.id);
+      const partial: Partial<Progress> = isCorrect
+        ? { correct_count: cur.correct_count + 1, consecutive_correct: magure ? 0 : cur.consecutive_correct + 1, last_is_correct: true, last_answered_at: new Date().toISOString(), last_confidence: confidence }
+        : { wrong_count: cur.wrong_count + 1, consecutive_correct: 0, last_is_correct: false, last_answered_at: new Date().toISOString(), last_confidence: confidence };
+      setSessionResults((r) => [...r, { correct: isCorrect, category: q.category_name, color: q.category_color }]);
+      persist(q.id, partial);
+      recordAnswer(q, isCorrect, confidence);
+    } else {
+      if (picked === null) return;
+      const isCorrect = picked === q.correct_index;
+      const magure = isCorrect && confidence === 3;
+      setAnswered(true);
+      const cur = getProgress(progressMap, q.id);
+      const partial: Partial<Progress> = isCorrect
+        ? { correct_count: cur.correct_count + 1, consecutive_correct: magure ? 0 : cur.consecutive_correct + 1, last_is_correct: true, last_selected_index: picked, last_answered_at: new Date().toISOString(), last_confidence: confidence }
+        : { wrong_count: cur.wrong_count + 1, consecutive_correct: 0, last_is_correct: false, last_selected_index: picked, last_answered_at: new Date().toISOString(), last_confidence: confidence };
+      setSessionResults((r) => [...r, { correct: isCorrect, category: q.category_name, color: q.category_color }]);
+      persist(q.id, partial);
+      recordAnswer(q, isCorrect, confidence);
+    }
   };
 
   const saveMemoAndNext = () => {
@@ -323,7 +290,7 @@ export function LearningApp({
 
   if (now === 0) {
     return (
-      <div className="flex justify-center pt-32 text-xs text-[#333]">
+      <div className="flex justify-center pt-32 text-xs text-[#555e70]">
         読み込み中
       </div>
     );
@@ -353,27 +320,27 @@ export function LearningApp({
         <div className={container}>
           <h1 className="mb-6 text-sm font-semibold text-white">目標設定</h1>
 
-          <label className="mb-1.5 block text-xs text-[#555]">試験日</label>
+          <label className="mb-1.5 block text-xs text-[#8892a4]">試験日</label>
           <input
             type="date"
             value={goalDraft.examDate}
             onChange={(e) => setGoalDraft((d) => ({ ...d, examDate: e.target.value }))}
-            className="mb-5 w-full rounded-xl border border-[#222] bg-[#111] px-4 py-3 text-sm text-white outline-none focus:border-[#3b82f6] transition-colors"
+            className="mb-5 w-full rounded-xl border border-[#2a2f3f] bg-[#1a1d27] px-4 py-3 text-sm text-white outline-none focus:border-[#3b82f6] transition-colors"
           />
 
-          <label className="mb-1.5 block text-xs text-[#555]">試験名（任意）</label>
+          <label className="mb-1.5 block text-xs text-[#8892a4]">試験名（任意）</label>
           <input
             type="text"
             value={goalDraft.targetName}
             onChange={(e) => setGoalDraft((d) => ({ ...d, targetName: e.target.value }))}
             placeholder={`例: ${subjectName} 合格`}
-            className="mb-6 w-full rounded-xl border border-[#222] bg-[#111] px-4 py-3 text-sm text-white outline-none placeholder:text-[#333] focus:border-[#3b82f6] transition-colors"
+            className="mb-6 w-full rounded-xl border border-[#2a2f3f] bg-[#1a1d27] px-4 py-3 text-sm text-white outline-none placeholder:text-[#555e70] focus:border-[#3b82f6] transition-colors"
           />
 
           <button
             onClick={handleSaveGoal}
             disabled={!goalDraft.examDate}
-            className="mb-2 w-full rounded-xl bg-[#3b82f6] py-3 text-sm font-medium text-white transition hover:bg-[#60a5fa] disabled:bg-[#1a1a1a] disabled:text-[#333]"
+            className="mb-2 w-full rounded-xl bg-[#3b82f6] py-3 text-sm font-medium text-white transition hover:bg-[#60a5fa] disabled:bg-[#1a1d27] disabled:text-[#555e70]"
           >
             保存
           </button>
@@ -387,7 +354,7 @@ export function LearningApp({
           )}
           <button
             onClick={() => setScreen("menu")}
-            className="w-full rounded-xl py-3 text-sm text-[#444] transition hover:text-[#888]"
+            className="w-full rounded-xl py-3 text-sm text-[#555e70] transition hover:text-[#8892a4]"
           >
             キャンセル
           </button>
@@ -416,7 +383,7 @@ export function LearningApp({
           <div className="mb-6 flex items-start justify-between">
             <div>
               <h1 className="text-base font-semibold text-white">{subjectName}</h1>
-              <p className="text-xs text-[#444]">
+              <p className="text-xs text-[#555e70]">
                 全 {questions.length} 問
                 {answeredCount > 0 && <span> · 演習済み {answeredCount}</span>}
                 {restingCount > 0 && <span> · 休眠 {restingCount}</span>}
@@ -426,7 +393,7 @@ export function LearningApp({
               <select
                 value={currentSubjectSlug}
                 onChange={(e) => switchSubject(e.target.value)}
-                className="rounded-lg border border-[#222] bg-[#111] px-2.5 py-1.5 text-xs text-[#666] outline-none"
+                className="rounded-lg border border-[#2a2f3f] bg-[#1a1d27] px-2.5 py-1.5 text-xs text-[#8892a4] outline-none"
               >
                 {subjects.map((s) => (
                   <option key={s.slug} value={s.slug}>{s.name}</option>
@@ -437,29 +404,29 @@ export function LearningApp({
 
           {/* Goal card */}
           {goal ? (
-            <div className="mb-6 rounded-xl border border-[#222] bg-[#111] p-4">
+            <div className="mb-6 rounded-xl border border-[#2a2f3f] bg-[#1a1d27] p-4">
               <div className="mb-3 flex items-start justify-between gap-4">
                 <div className="min-w-0">
                   <p className="truncate text-sm font-medium text-white">
                     {goal.targetName || subjectName}
                   </p>
-                  <p className="text-xs text-[#444]">残り {dailyRec.daysRemaining} 日</p>
+                  <p className="text-xs text-[#555e70]">残り {dailyRec.daysRemaining} 日</p>
                 </div>
                 <div className="shrink-0 text-right">
                   <p className="text-2xl font-bold tabular-nums" style={{ color: probColor }}>
                     {stats.passProb}%
                   </p>
-                  <p className="text-[10px] text-[#333]">合格確率</p>
+                  <p className="text-[10px] text-[#555e70]">合格確率</p>
                 </div>
               </div>
-              <div className="mb-3 h-px overflow-hidden rounded-full bg-[#1e1e1e]">
+              <div className="mb-3 h-px overflow-hidden rounded-full bg-[#2a2f3f]">
                 <div
                   className="h-full rounded-full transition-all duration-500"
                   style={{ width: `${stats.passProb}%`, background: probColor }}
                 />
               </div>
               <div className="flex items-center justify-between">
-                <p className="text-xs text-[#444]">
+                <p className="text-xs text-[#555e70]">
                   {dailyRec.newCount > 0 && `新規 ${dailyRec.newCount}問`}
                   {dailyRec.newCount > 0 && dailyRec.reviewCount > 0 && " · "}
                   {dailyRec.reviewCount > 0 && `復習 ${dailyRec.reviewCount}問`}
@@ -467,7 +434,7 @@ export function LearningApp({
                 </p>
                 <button
                   onClick={() => setScreen("goal")}
-                  className="text-xs text-[#333] transition hover:text-[#666]"
+                  className="text-xs text-[#555e70] transition hover:text-[#8892a4]"
                 >
                   編集
                 </button>
@@ -476,15 +443,15 @@ export function LearningApp({
           ) : (
             <button
               onClick={() => setScreen("goal")}
-              className="mb-6 w-full rounded-xl border border-dashed border-[#222] px-4 py-4 text-left transition hover:border-[#333]"
+              className="mb-6 w-full rounded-xl border border-dashed border-[#2a2f3f] px-4 py-4 text-left transition hover:border-[#3a4050]"
             >
-              <p className="text-sm text-[#555]">試験日を設定</p>
-              <p className="text-xs text-[#333]">合格確率と今日のノルマを逆算します</p>
+              <p className="text-sm text-[#8892a4]">試験日を設定</p>
+              <p className="text-xs text-[#555e70]">合格確率と今日のノルマを逆算します</p>
             </button>
           )}
 
           {/* Categories */}
-          <p className="mb-2 text-[10px] font-semibold uppercase tracking-widest text-[#3a3a3a]">
+          <p className="mb-2 text-[10px] font-semibold uppercase tracking-widest text-[#555e70]">
             分野
           </p>
           <div className="mb-2 flex flex-wrap gap-1.5">
@@ -504,14 +471,14 @@ export function LearningApp({
                   }}
                   className="flex items-center gap-1.5 rounded-full border px-3 py-1 text-xs transition"
                   style={{
-                    borderColor: on ? c.color + "55" : "#222",
-                    color: on ? c.color : "#555",
+                    borderColor: on ? c.color + "55" : "#2a2f3f",
+                    color: on ? c.color : "#8892a4",
                     background: on ? c.color + "0f" : "transparent",
                   }}
                 >
                   <span
                     className="h-1.5 w-1.5 shrink-0 rounded-full"
-                    style={{ background: on ? c.color : "#333" }}
+                    style={{ background: on ? c.color : "#3a4050" }}
                   />
                   {c.name}
                   <span className="text-[10px] opacity-60">{all.length - rest}</span>
@@ -522,34 +489,34 @@ export function LearningApp({
           <div className="mb-6 flex gap-3">
             <button
               onClick={() => setSelCats(new Set(categories.map((c) => c.id)))}
-              className="text-xs text-[#333] transition hover:text-[#666]"
+              className="text-xs text-[#555e70] transition hover:text-[#8892a4]"
             >
               全選択
             </button>
-            <span className="text-[#222]">·</span>
+            <span className="text-[#2a2f3f]">·</span>
             <button
               onClick={() => setSelCats(new Set())}
-              className="text-xs text-[#333] transition hover:text-[#666]"
+              className="text-xs text-[#555e70] transition hover:text-[#8892a4]"
             >
               全解除
             </button>
           </div>
 
           {/* Count */}
-          <p className="mb-2 text-[10px] font-semibold uppercase tracking-widest text-[#3a3a3a]">
+          <p className="mb-2 text-[10px] font-semibold uppercase tracking-widest text-[#555e70]">
             問題数
           </p>
-          <div className="mb-6 flex overflow-hidden rounded-xl border border-[#222]">
+          <div className="mb-6 flex overflow-hidden rounded-xl border border-[#2a2f3f]">
             {countOptions.map((n, i) => {
               const on = count === n;
               return (
                 <button
                   key={i}
                   onClick={() => setCount(n)}
-                  className="flex-1 border-r border-[#222] py-2.5 text-sm font-medium last:border-r-0 transition"
+                  className="flex-1 border-r border-[#2a2f3f] py-2.5 text-sm font-medium last:border-r-0 transition"
                   style={{
                     background: on ? "#3b82f6" : "transparent",
-                    color: on ? "#fff" : "#444",
+                    color: on ? "#fff" : "#8892a4",
                   }}
                 >
                   {i === 3 ? eligible.length : n}
@@ -562,23 +529,23 @@ export function LearningApp({
           <button
             onClick={startQuiz}
             disabled={!eligible.length}
-            className="mb-6 w-full rounded-xl bg-[#3b82f6] py-4 text-sm font-semibold text-white transition hover:bg-[#60a5fa] disabled:bg-[#161616] disabled:text-[#333]"
+            className="mb-6 w-full rounded-xl bg-[#3b82f6] py-4 text-sm font-semibold text-white transition hover:bg-[#60a5fa] disabled:bg-[#141720] disabled:text-[#555e70]"
           >
             スタート — {Math.min(count, eligible.length)} 問
           </button>
 
           {/* Advanced settings */}
           <details className="mb-6 group" open={mode === "priority" || recallMode}>
-            <summary className="mb-3 cursor-pointer list-none text-xs text-[#333] transition hover:text-[#666] group-open:text-[#555]">
+            <summary className="mb-3 cursor-pointer list-none text-xs text-[#555e70] transition hover:text-[#8892a4] group-open:text-[#8892a4]">
               詳細設定
             </summary>
 
             <div className="space-y-4">
               <div>
-                <p className="mb-2 text-[10px] font-semibold uppercase tracking-widest text-[#3a3a3a]">
+                <p className="mb-2 text-[10px] font-semibold uppercase tracking-widest text-[#555e70]">
                   出題モード
                 </p>
-                <div className="flex overflow-hidden rounded-xl border border-[#222]">
+                <div className="flex overflow-hidden rounded-xl border border-[#2a2f3f]">
                   {([["shuffle", "シャッフル"], ["priority", "弱点優先"]] as const).map(
                     ([m, lbl], i) => (
                       <button
@@ -586,7 +553,7 @@ export function LearningApp({
                         onClick={() => setMode(m)}
                         className="flex-1 py-2.5 text-sm transition"
                         style={{
-                          borderRight: i === 0 ? "1px solid #222" : "none",
+                          borderRight: i === 0 ? "1px solid #2a2f3f" : "none",
                           background:
                             mode === m
                               ? m === "priority"
@@ -598,7 +565,7 @@ export function LearningApp({
                               ? m === "priority"
                                 ? "#f87171"
                                 : "#60a5fa"
-                              : "#444",
+                              : "#8892a4",
                         }}
                       >
                         {lbl}
@@ -606,20 +573,20 @@ export function LearningApp({
                     )
                   )}
                 </div>
-                <p className="mt-1.5 text-xs text-[#333]">
+                <p className="mt-1.5 text-xs text-[#555e70]">
                   3回連続正解は2週間休眠
                 </p>
               </div>
 
-              <div className="flex items-center justify-between rounded-xl border border-[#222] px-4 py-3">
+              <div className="flex items-center justify-between rounded-xl border border-[#2a2f3f] px-4 py-3">
                 <div>
-                  <p className="text-sm text-[#ccc]">想起モード</p>
-                  <p className="text-xs text-[#444]">選択肢を隠して先に考える</p>
+                  <p className="text-sm text-[#c0c8d8]">想起モード</p>
+                  <p className="text-xs text-[#555e70]">選択肢を隠して先に考える</p>
                 </div>
                 <button
                   onClick={() => setRecallMode((v) => !v)}
                   className="relative h-6 w-11 shrink-0 rounded-full transition-colors"
-                  style={{ background: recallMode ? "#3b82f6" : "#222" }}
+                  style={{ background: recallMode ? "#3b82f6" : "#2a2f3f" }}
                 >
                   <span
                     className="absolute top-1 h-4 w-4 rounded-full bg-white shadow transition-all"
@@ -648,7 +615,7 @@ export function LearningApp({
               <button
                 key={label}
                 onClick={action}
-                className="rounded-xl border border-[#1a1a1a] py-3 text-xs text-[#444] transition hover:border-[#333] hover:text-[#888]"
+                className="rounded-xl border border-[#2a2f3f] py-3 text-xs text-[#555e70] transition hover:border-[#3a4050] hover:text-[#8892a4]"
               >
                 {label}
               </button>
@@ -694,16 +661,16 @@ export function LearningApp({
             <h1 className="text-sm font-semibold text-white">書き出し（CSV）</h1>
             <button
               onClick={() => setScreen("menu")}
-              className="text-xs text-[#444] transition hover:text-[#888]"
+              className="text-xs text-[#555e70] transition hover:text-[#8892a4]"
             >
               ← 戻る
             </button>
           </div>
 
-          <p className="mb-3 text-[10px] font-semibold uppercase tracking-widest text-[#3a3a3a]">
+          <p className="mb-3 text-[10px] font-semibold uppercase tracking-widest text-[#555e70]">
             対象
           </p>
-          <div className="mb-5 flex overflow-hidden rounded-xl border border-[#222]">
+          <div className="mb-5 flex overflow-hidden rounded-xl border border-[#2a2f3f]">
             {MODES.map(({ key, label, count }, i) => {
               const on = exportMode === key;
               return (
@@ -712,9 +679,9 @@ export function LearningApp({
                   onClick={() => rebuild(key)}
                   className="flex-1 py-2.5 text-xs font-medium transition"
                   style={{
-                    borderRight: i < MODES.length - 1 ? "1px solid #222" : "none",
-                    background: on ? "#1e1e1e" : "transparent",
-                    color: on ? "#fff" : "#444",
+                    borderRight: i < MODES.length - 1 ? "1px solid #2a2f3f" : "none",
+                    background: on ? "#1a1d27" : "transparent",
+                    color: on ? "#fff" : "#8892a4",
                   }}
                 >
                   {label}
@@ -746,19 +713,19 @@ export function LearningApp({
                 setCopyMsg("コピー不可 — テキストを手動で選択してください");
               }
             }}
-            className="mb-2 w-full rounded-xl border border-[#222] py-3 text-sm text-[#666] transition hover:border-[#333] hover:text-[#aaa]"
+            className="mb-2 w-full rounded-xl border border-[#2a2f3f] py-3 text-sm text-[#8892a4] transition hover:border-[#3a4050] hover:text-[#c0c8d8]"
           >
             クリップボードにコピー
           </button>
           {copyMsg && (
-            <p className="mb-3 text-center text-xs text-[#666]">{copyMsg}</p>
+            <p className="mb-3 text-center text-xs text-[#8892a4]">{copyMsg}</p>
           )}
 
           <textarea
             readOnly
             value={csvText}
             onFocus={(e) => e.target.select()}
-            className="mb-4 min-h-[180px] w-full resize-y overflow-x-auto rounded-xl border border-[#1a1a1a] bg-[#0d0d0d] px-3 py-2.5 font-mono text-[11px] text-[#555]"
+            className="mb-4 min-h-[180px] w-full resize-y overflow-x-auto rounded-xl border border-[#2a2f3f] bg-[#141720] px-3 py-2.5 font-mono text-[11px] text-[#8892a4]"
           />
         </div>
       </div>
@@ -804,27 +771,27 @@ export function LearningApp({
             <h1 className="text-sm font-semibold text-white">苦手分析</h1>
             <button
               onClick={() => setScreen("menu")}
-              className="text-xs text-[#444] transition hover:text-[#888]"
+              className="text-xs text-[#555e70] transition hover:text-[#8892a4]"
             >
               ← 戻る
             </button>
           </div>
 
           {/* Pass probability */}
-          <div className="mb-6 rounded-xl border border-[#222] bg-[#111] p-4">
+          <div className="mb-6 rounded-xl border border-[#2a2f3f] bg-[#1a1d27] p-4">
             <div className="mb-3 flex items-end justify-between">
-              <p className="text-xs text-[#555]">予測合格確率</p>
+              <p className="text-xs text-[#8892a4]">予測合格確率</p>
               <p className="text-3xl font-bold tabular-nums" style={{ color: probColor }}>
                 {masteryStats.passProb}%
               </p>
             </div>
-            <div className="mb-3 h-px overflow-hidden rounded-full bg-[#1a1a1a]">
+            <div className="mb-3 h-px overflow-hidden rounded-full bg-[#2a2f3f]">
               <div
                 className="h-full rounded-full transition-all"
                 style={{ width: `${masteryStats.passProb}%`, background: probColor }}
               />
             </div>
-            <div className="flex gap-4 text-xs text-[#444]">
+            <div className="flex gap-4 text-xs text-[#555e70]">
               <span>演習 {masteryStats.attempted} / {questions.length}</span>
               <span>習得 {masteryStats.masteredCount}</span>
               <span>弱点 {masteryStats.weakCount}</span>
@@ -832,7 +799,7 @@ export function LearningApp({
           </div>
 
           {/* Skill tree */}
-          <p className="mb-3 text-[10px] font-semibold uppercase tracking-widest text-[#3a3a3a]">
+          <p className="mb-3 text-[10px] font-semibold uppercase tracking-widest text-[#555e70]">
             分野別スキルツリー
           </p>
           <div className="mb-6 space-y-2">
@@ -840,16 +807,16 @@ export function LearningApp({
               const pct = Math.round(cm.mastery * 100);
               const stat = catStats.find((s) => s.id === cm.id);
               return (
-                <div key={cm.id} className="rounded-xl border border-[#1a1a1a] bg-[#0d0d0d] p-3.5">
+                <div key={cm.id} className="rounded-xl border border-[#2a2f3f] bg-[#141720] p-3.5">
                   <div className="mb-2 flex items-center justify-between gap-2">
                     <div className="flex min-w-0 items-center gap-2">
                       <span
                         className="h-2 w-2 shrink-0 rounded-full"
                         style={{ background: cm.color }}
                       />
-                      <span className="truncate text-xs font-medium text-[#ccc]">{cm.name}</span>
+                      <span className="truncate text-xs font-medium text-[#c0c8d8]">{cm.name}</span>
                     </div>
-                    <div className="flex shrink-0 items-center gap-3 text-[10px] text-[#444]">
+                    <div className="flex shrink-0 items-center gap-3 text-[10px] text-[#555e70]">
                       {stat?.acc !== null && stat?.acc !== undefined && (
                         <span>正答 {stat.acc}%</span>
                       )}
@@ -863,7 +830,7 @@ export function LearningApp({
                               : pct >= 40
                                 ? "#f59e0b"
                                 : pct === 0
-                                  ? "#333"
+                                  ? "#555e70"
                                   : "#ef4444",
                         }}
                       >
@@ -871,7 +838,7 @@ export function LearningApp({
                       </span>
                     </div>
                   </div>
-                  <div className="h-px overflow-hidden rounded-full bg-[#1a1a1a]">
+                  <div className="h-px overflow-hidden rounded-full bg-[#2a2f3f]">
                     <div
                       className="h-full rounded-full transition-all"
                       style={{
@@ -887,7 +854,7 @@ export function LearningApp({
           </div>
 
           {/* Worst questions */}
-          <p className="mb-3 text-[10px] font-semibold uppercase tracking-widest text-[#3a3a3a]">
+          <p className="mb-3 text-[10px] font-semibold uppercase tracking-widest text-[#555e70]">
             最重点 8 問
           </p>
           <div className="mb-6 space-y-1.5">
@@ -896,17 +863,17 @@ export function LearningApp({
               return (
                 <div
                   key={q.id}
-                  className="flex items-start gap-3 rounded-xl border border-[#1a1a1a] px-3.5 py-3"
+                  className="flex items-start gap-3 rounded-xl border border-[#2a2f3f] px-3.5 py-3"
                 >
                   <span
                     className="mt-0.5 h-2 w-2 shrink-0 rounded-full"
                     style={{ background: q.category_color }}
                   />
                   <div className="min-w-0 flex-1">
-                    <p className="truncate text-xs text-[#888]">
+                    <p className="truncate text-xs text-[#8892a4]">
                       {q.question_text.slice(0, 55)}…
                     </p>
-                    <p className="mt-0.5 text-[10px] text-[#444]">
+                    <p className="mt-0.5 text-[10px] text-[#555e70]">
                       誤 {totalWrong(q, p)} 正 {totalCorrect(p)}
                       {p.last_confidence !== null && (
                         <span className="ml-2" style={{ color: CONFIDENCE_COLORS[(p.last_confidence ?? 1) - 1] }}>
@@ -921,7 +888,7 @@ export function LearningApp({
           </div>
 
           {/* Confidence distribution */}
-          <p className="mb-3 text-[10px] font-semibold uppercase tracking-widest text-[#3a3a3a]">
+          <p className="mb-3 text-[10px] font-semibold uppercase tracking-widest text-[#555e70]">
             確信度の分布
           </p>
           <div className="mb-6 flex gap-2">
@@ -933,20 +900,20 @@ export function LearningApp({
               return (
                 <div
                   key={i}
-                  className="flex-1 rounded-xl border border-[#1a1a1a] bg-[#0d0d0d] py-3 text-center"
+                  className="flex-1 rounded-xl border border-[#2a2f3f] bg-[#141720] py-3 text-center"
                 >
                   <p className="text-xl font-bold tabular-nums" style={{ color: CONFIDENCE_COLORS[i] }}>
                     {cnt}
                   </p>
-                  <p className="text-[9px] text-[#333]">{label}</p>
+                  <p className="text-[9px] text-[#555e70]">{label}</p>
                 </div>
               );
             })}
-            <div className="flex-1 rounded-xl border border-[#1a1a1a] bg-[#0d0d0d] py-3 text-center">
-              <p className="text-xl font-bold tabular-nums text-[#2a2a2a]">
+            <div className="flex-1 rounded-xl border border-[#2a2f3f] bg-[#141720] py-3 text-center">
+              <p className="text-xl font-bold tabular-nums text-[#3a4050]">
                 {questions.filter((qq) => getProgress(progressMap, qq.id).last_confidence === null).length}
               </p>
-              <p className="text-[9px] text-[#333]">未回答</p>
+              <p className="text-[9px] text-[#555e70]">未回答</p>
             </div>
           </div>
         </div>
@@ -972,17 +939,17 @@ export function LearningApp({
       <div className={wrap}>
         <div className={container}>
           {/* Score */}
-          <div className="mb-6 rounded-xl border border-[#222] bg-[#111] p-6 text-center">
+          <div className="mb-6 rounded-xl border border-[#2a2f3f] bg-[#1a1d27] p-6 text-center">
             <p className="mb-1 text-4xl font-bold tabular-nums text-white">
               {ok}
-              <span className="text-xl text-[#333]"> / {sessionResults.length}</span>
+              <span className="text-xl text-[#555e70]"> / {sessionResults.length}</span>
             </p>
-            <p className="text-sm text-[#555]">正答率 {pct}%</p>
+            <p className="text-sm text-[#8892a4]">正答率 {pct}%</p>
 
             {probDelta !== null && (
               <div className="mt-4 flex items-center justify-center gap-2 text-sm tabular-nums">
-                <span className="text-[#444]">{sessionStartPassProb}%</span>
-                <span className="text-[#222]">→</span>
+                <span className="text-[#555e70]">{sessionStartPassProb}%</span>
+                <span className="text-[#3a4050]">→</span>
                 <span
                   className="font-semibold"
                   style={{
@@ -1006,13 +973,13 @@ export function LearningApp({
 
           {/* Category breakdown */}
           {Object.keys(breakdown).length > 0 && (
-            <div className="mb-6 rounded-xl border border-[#1a1a1a] overflow-hidden">
+            <div className="mb-6 rounded-xl border border-[#2a2f3f] overflow-hidden">
               {Object.entries(breakdown).map(([cat, v], i) => (
                 <div
                   key={cat}
                   className="flex items-center justify-between px-4 py-3"
                   style={{
-                    borderTop: i > 0 ? "1px solid #1a1a1a" : "none",
+                    borderTop: i > 0 ? "1px solid #2a2f3f" : "none",
                   }}
                 >
                   <div className="flex items-center gap-2">
@@ -1020,7 +987,7 @@ export function LearningApp({
                       className="h-1.5 w-1.5 rounded-full"
                       style={{ background: v.color }}
                     />
-                    <span className="text-xs text-[#888]">{cat}</span>
+                    <span className="text-xs text-[#8892a4]">{cat}</span>
                   </div>
                   <div className="flex gap-3 text-xs">
                     <span className="text-[#22c55e]">{v.ok}</span>
@@ -1034,7 +1001,7 @@ export function LearningApp({
           <div className="flex gap-2">
             <button
               onClick={() => setScreen("analysis")}
-              className="flex-1 rounded-xl border border-[#222] py-3 text-sm text-[#555] transition hover:border-[#333] hover:text-[#888]"
+              className="flex-1 rounded-xl border border-[#2a2f3f] py-3 text-sm text-[#8892a4] transition hover:border-[#3a4050] hover:text-[#c0c8d8]"
             >
               分析
             </button>
@@ -1065,22 +1032,32 @@ export function LearningApp({
 
   const correctSet = new Set(q.correct_indices ?? [q.correct_index]);
 
-  const getChoiceStyle = (i: number): string => {
+  const getChoiceClass = (i: number): string => {
     if (!answered) {
-      const locked = confidence === null;
-      if (q.question_type === "multi" && multiSelected.has(i)) {
-        return "border-[#1e3a6e] bg-[#0a1e40] text-white";
-      }
-      return locked
-        ? "border-[#1a1a1a] text-[#2a2a2a]"
-        : "border-[#222] text-[#ccc] hover:border-[#333] hover:text-white";
+      if (q.question_type === "multi" && multiSelected.has(i)) return "border-[#2a4a7f] bg-[#0f1f40]";
+      if (q.question_type !== "multi" && i === picked)          return "border-[#3b82f6] bg-[#0d1f3c]";
+      return "border-[#2a2f3f] hover:border-[#3b82f6] cursor-pointer";
     }
     const isCorrectOption = correctSet.has(i);
     const wasSelected = q.question_type === "multi" ? multiSelected.has(i) : i === picked;
-    if (isCorrectOption && wasSelected)  return "border-[#14532d] bg-[#052e16] text-[#86efac]";
-    if (isCorrectOption && !wasSelected) return "border-[#0f2a1a] bg-[#031208] text-[#4ade80]";
-    if (!isCorrectOption && wasSelected) return "border-[#7f1d1d] bg-[#1c0606] text-[#f87171]";
-    return "border-[#111] text-[#2a2a2a]";
+    if (isCorrectOption && wasSelected)  return "border-[#166534] bg-[#052e16]";
+    if (isCorrectOption && !wasSelected) return "border-[#134e26] bg-[#031a0e]";
+    if (!isCorrectOption && wasSelected) return "border-[#7f1d1d] bg-[#1c0606]";
+    return "border-[#2a2f3f]";
+  };
+
+  const getChoiceColor = (i: number): string => {
+    if (!answered) {
+      if ((q.question_type === "multi" && multiSelected.has(i)) ||
+          (q.question_type !== "multi" && i === picked)) return "#ffffff";
+      return "#c0c8d8";
+    }
+    const isCorrectOption = correctSet.has(i);
+    const wasSelected = q.question_type === "multi" ? multiSelected.has(i) : i === picked;
+    if (isCorrectOption && wasSelected)  return "#86efac";
+    if (isCorrectOption && !wasSelected) return "#4ade80";
+    if (!isCorrectOption && wasSelected) return "#fca5a5";
+    return "#555e70";
   };
 
   return (
@@ -1088,10 +1065,10 @@ export function LearningApp({
       {/* Progress */}
       <div className="mb-4 w-full max-w-[520px]">
         <div className="mb-2 flex items-center gap-3">
-          <span className="min-w-[40px] text-xs tabular-nums text-[#444]">
+          <span className="min-w-[40px] text-xs tabular-nums text-[#555e70]">
             {idx + 1} / {deck.length}
           </span>
-          <div className="h-px flex-1 overflow-hidden rounded-full bg-[#1a1a1a]">
+          <div className="h-px flex-1 overflow-hidden rounded-full bg-[#1a1d27]">
             <div
               className="h-full rounded-full bg-[#3b82f6] transition-all"
               style={{ width: `${((idx + 1) / deck.length) * 100}%` }}
@@ -1100,15 +1077,15 @@ export function LearningApp({
         </div>
       </div>
 
-      <div className="w-full max-w-[520px] rounded-2xl border border-[#1a1a1a] bg-[#111] p-5">
+      <div className="w-full max-w-[520px] rounded-2xl border border-[#2a2f3f] bg-[#1a1d27] p-5">
         {/* Meta */}
         <div className="mb-4 flex items-center gap-2">
           <span className="h-2 w-2 shrink-0 rounded-full" style={{ background: q.category_color }} />
-          <span className="text-xs text-[#555]">{q.category_name}</span>
+          <span className="text-xs text-[#8892a4]">{q.category_name}</span>
           {q.question_type === "multi" && (
-            <span className="text-xs text-[#444]">· 複数選択</span>
+            <span className="text-xs text-[#555e70]">· 複数選択</span>
           )}
-          <span className="ml-auto text-xs text-[#333]">
+          <span className="ml-auto text-xs text-[#555e70]">
             {p.correct_count + p.wrong_count === 0
               ? "初挑戦"
               : `誤 ${totalWrong(q, p)} 連 ${p.consecutive_correct}`}
@@ -1116,22 +1093,22 @@ export function LearningApp({
         </div>
 
         {/* Question */}
-        <p className="mb-5 text-[15px] font-medium leading-8 text-[#e8e8e8]">
+        <p className="mb-5 text-[15px] font-medium leading-8 text-[#e8eaf0]">
           {q.question_text}
         </p>
 
         {/* Code */}
         {q.code && (
-          <pre className="mb-5 overflow-x-auto rounded-xl bg-[#0d0d0d] px-4 py-3.5 font-mono text-xs leading-6 text-[#888]">
+          <pre className="mb-5 overflow-x-auto rounded-xl bg-[#141720] px-4 py-3.5 font-mono text-xs leading-6 text-[#8892a4]">
             <code>{q.code}</code>
           </pre>
         )}
 
         {/* Recall placeholder */}
         {choicesHidden ? (
-          <div className="mb-5 rounded-xl border border-dashed border-[#222] py-8 text-center">
-            <p className="mb-1 text-sm text-[#555]">まず自分で考えてみよう</p>
-            <p className="mb-4 text-xs text-[#333]">答えが浮かんだら選択肢を表示する</p>
+          <div className="mb-5 rounded-xl border border-dashed border-[#2a2f3f] py-8 text-center">
+            <p className="mb-1 text-sm text-[#8892a4]">まず自分で考えてみよう</p>
+            <p className="mb-4 text-xs text-[#555e70]">答えが浮かんだら選択肢を表示する</p>
             <button
               onClick={() => setChoicesHidden(false)}
               className="rounded-lg bg-[#3b82f6] px-5 py-2 text-sm font-medium text-white transition hover:bg-[#60a5fa]"
@@ -1141,19 +1118,28 @@ export function LearningApp({
           </div>
         ) : (
           <>
-            {/* Confidence */}
+            {/* Choices — always fully visible, click to select */}
+            <div className="space-y-2">
+              {q.options.map((choice, i) => (
+                <button
+                  key={i}
+                  onClick={() =>
+                    answered ? undefined : q.question_type === "multi" ? toggleMulti(i) : setPicked(i)
+                  }
+                  disabled={answered}
+                  className={`block w-full rounded-xl border px-4 py-3.5 text-left text-sm leading-relaxed transition ${getChoiceClass(i)}`}
+                  style={{ color: getChoiceColor(i) }}
+                >
+                  <span className="mr-2.5 font-semibold">{"ABCD"[i]}.</span>
+                  {choice}
+                </button>
+              ))}
+            </div>
+
+            {/* Confidence + Submit */}
             {!answered && (
-              <div className="mb-4">
-                <p
-                  className="mb-2 text-[10px] font-semibold uppercase tracking-widest transition"
-                  style={{ color: confidence === null ? "#92400e" : "#3a3a3a" }}
-                >
-                  {confidence === null ? "① 確信度を先に選ぶ" : "確信度"}
-                </p>
-                <div
-                  className="flex overflow-hidden rounded-xl border transition-colors"
-                  style={{ borderColor: confidence === null ? "#3d2000" : "#222" }}
-                >
+              <div className="mt-4 space-y-3">
+                <div className="flex overflow-hidden rounded-xl border border-[#2a2f3f]">
                   {CONFIDENCE_LABELS.map((label, i) => {
                     const level = i + 1;
                     const on = confidence === level;
@@ -1162,56 +1148,31 @@ export function LearningApp({
                       <button
                         key={level}
                         onClick={() => setConfidence(level)}
-                        className="flex flex-1 items-center justify-center gap-1.5 border-r border-[#222] py-2.5 text-xs font-medium last:border-r-0 transition"
+                        className="flex flex-1 items-center justify-center gap-1.5 border-r border-[#2a2f3f] py-2.5 text-xs font-medium last:border-r-0 transition"
                         style={{
                           background: on ? color + "18" : "transparent",
-                          color: on ? color : "#444",
+                          color: on ? color : "#8892a4",
                         }}
                       >
-                        {on && (
-                          <span
-                            className="h-1.5 w-1.5 rounded-full"
-                            style={{ background: color }}
-                          />
-                        )}
+                        {on && <span className="h-1.5 w-1.5 rounded-full" style={{ background: color }} />}
                         {label}
                       </button>
                     );
                   })}
                 </div>
+                <button
+                  onClick={submitAnswer}
+                  disabled={
+                    confidence === null ||
+                    (q.question_type === "multi" ? multiSelected.size === 0 : picked === null)
+                  }
+                  className="w-full rounded-xl bg-[#3b82f6] py-3.5 text-sm font-semibold text-white transition hover:bg-[#60a5fa] disabled:bg-[#141720] disabled:text-[#555e70]"
+                >
+                  {q.question_type === "multi"
+                    ? `回答する（${multiSelected.size} 選択中）`
+                    : "回答する"}
+                </button>
               </div>
-            )}
-
-            {/* Choices */}
-            <div className="space-y-2">
-              {q.options.map((choice, i) => {
-                const locked = !answered && confidence === null;
-                return (
-                  <button
-                    key={i}
-                    onClick={() =>
-                      q.question_type === "multi" ? toggleMulti(i) : answerSingle(i)
-                    }
-                    disabled={answered || locked}
-                    className={`block w-full rounded-xl border px-4 py-3.5 text-left text-sm leading-relaxed transition ${getChoiceStyle(i)}`}
-                    style={{ opacity: locked ? 0.3 : 1 }}
-                  >
-                    <span className="mr-2.5 font-semibold">{"ABCD"[i]}.</span>
-                    {choice}
-                  </button>
-                );
-              })}
-            </div>
-
-            {/* Multi submit */}
-            {q.question_type === "multi" && !answered && (
-              <button
-                onClick={submitMulti}
-                disabled={multiSelected.size === 0 || confidence === null}
-                className="mt-3 w-full rounded-xl bg-[#3b82f6] py-3 text-sm font-medium text-white transition hover:bg-[#60a5fa] disabled:bg-[#161616] disabled:text-[#333]"
-              >
-                回答する（{multiSelected.size} 選択中）
-              </button>
             )}
           </>
         )}
@@ -1249,11 +1210,11 @@ export function LearningApp({
             </div>
 
             {/* Explanation */}
-            <div className="rounded-xl border border-[#1a1a1a] bg-[#0d0d0d] p-4">
+            <div className="rounded-xl border border-[#2a2f3f] bg-[#141720] p-4">
               {q.explanation_data ? (
                 <RichExplanation data={q.explanation_data} />
               ) : (
-                <p className="text-sm leading-7 text-[#aaa]">{q.explanation}</p>
+                <p className="text-sm leading-7 text-[#c0c8d8]">{q.explanation}</p>
               )}
             </div>
 
@@ -1262,7 +1223,7 @@ export function LearningApp({
               value={memoText}
               onChange={(e) => setMemoText(e.target.value)}
               placeholder="気づき・覚え方・自分の言葉でのメモ"
-              className="w-full resize-y rounded-xl border border-[#1a1a1a] bg-[#0d0d0d] px-4 py-3 text-xs leading-relaxed text-[#888] outline-none placeholder:text-[#2a2a2a] focus:border-[#333]"
+              className="w-full resize-y rounded-xl border border-[#2a2f3f] bg-[#141720] px-4 py-3 text-xs leading-relaxed text-[#8892a4] outline-none placeholder:text-[#3a4050] focus:border-[#3a4050]"
               rows={3}
             />
 
