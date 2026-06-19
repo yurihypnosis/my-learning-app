@@ -30,12 +30,14 @@ export function saveGoal(subjectSlug: string, goal: UserGoal | null): void {
 }
 
 // 問題ごとの習得度スコア (0–1)
-// accuracy 60% + 自己評価 30% + 連続正解ボーナス 10%
+// accuracy 60% + 確信度 30% + 連続正解ボーナス 10%
 export function questionMastery(q: QuizQuestion, p: Progress): number {
   const attempts = p.correct_count + p.wrong_count;
   if (attempts === 0) return 0;
   const accuracy = p.correct_count / attempts;
-  const selfScore = p.understanding_level / 4;
+  // last_confidence: 1=確信あり→1.0, 2=迷った→0.5, 3=勘→0.0, null→0.0
+  const selfScore =
+    p.last_confidence === 1 ? 1.0 : p.last_confidence === 2 ? 0.5 : 0.0;
   const streakBonus = Math.min(p.consecutive_correct, 3) / 30; // max 0.1
   return Math.min(1, accuracy * 0.6 + selfScore * 0.3 + streakBonus);
 }
