@@ -29,8 +29,6 @@ const SUBJECT_LABELS: Record<string, string> = {
 };
 
 const WEEKDAYS = ["日", "月", "火", "水", "木", "金", "土"];
-const CONFIDENCE_LABELS = ["確信あり", "迷った", "勘"] as const;
-const CONFIDENCE_COLORS = ["#16a34a", "#f59e0b", "#dc2626"] as const;
 
 function toJSTDate(iso: string): Date {
   const d = new Date(iso);
@@ -183,7 +181,6 @@ export function LogClient({ events, todayKey, yesterdayKey, totalEvents }: Props
   const streak = calcStreak(days, todayKey);
   const totalDays = days.length;
   const totalCorrect = events.filter((e) => e.is_correct).length;
-  const overallAcc = totalEvents > 0 ? Math.round((totalCorrect / events.length) * 100) : 0;
 
   const page = "flex flex-col items-center px-3.5 pb-24 pt-5";
   const card = "w-full max-w-[560px] rounded-2xl bg-card p-5 shadow-2xl sm:p-6";
@@ -192,11 +189,8 @@ export function LogClient({ events, todayKey, yesterdayKey, totalEvents }: Props
     <div className={page}>
       <div className={card}>
         {/* Header */}
-        <div className="mb-4 flex items-center justify-between">
+        <div className="mb-4">
           <h2 className="text-lg font-extrabold text-slate-100">📅 学習ログ</h2>
-          <Link href="/" className="rounded-lg bg-card2 px-3 py-1.5 text-xs font-bold text-muted">
-            ← 戻る
-          </Link>
         </div>
 
         {/* Stats */}

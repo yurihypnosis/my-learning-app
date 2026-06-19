@@ -51,14 +51,8 @@ export function RoadmapClient({ acePassProb }: Props) {
   return (
     <div className={page}>
       <div className={card}>
-        <div className="mb-1 flex items-center justify-between">
+        <div className="mb-1">
           <h2 className="text-lg font-extrabold text-slate-100">🗺 学習ロードマップ</h2>
-          <Link
-            href="/"
-            className="rounded-lg bg-card2 px-3 py-1.5 text-xs font-bold text-muted"
-          >
-            ← 戻る
-          </Link>
         </div>
         <p className="mb-5 text-center text-[11px] text-muted2">
           目標：「DevOpsならユウ」― 設計・自動化・組織浸透の三拍子

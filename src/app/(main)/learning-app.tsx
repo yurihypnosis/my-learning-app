@@ -130,7 +130,6 @@ export function LearningApp({
 
   const [sessionResults, setSessionResults] = useState<SessionResult[]>([]);
   const [memoText, setMemoText] = useState("");
-  const [saving, setSaving] = useState(false);
   const [csvText, setCsvText] = useState("");
   const [onlyMemo, setOnlyMemo] = useState(true);
   const [copyMsg, setCopyMsg] = useState("");
@@ -152,6 +151,17 @@ export function LearningApp({
     if (g) setGoalDraft({ examDate: g.examDate, targetName: g.targetName });
   }, [currentSubjectSlug]);
 
+  // 解説表示中にメモを編集したら自動保存（800ms debounce）
+  useEffect(() => {
+    if (!answered || !deck[idx]) return;
+    const qid = deck[idx].id;
+    const timer = setTimeout(() => {
+      persist(qid, { memo: memoText });
+    }, 800);
+    return () => clearTimeout(timer);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [memoText]);
+
   const supabase = useMemo(() => createClient(), []);
 
   const recordAnswer = (q: QuizQuestion, isCorrect: boolean, conf: number | null) => {
@@ -171,7 +181,6 @@ export function LearningApp({
     const cur = getProgress(progressMap, qid);
     const next: Progress = { ...cur, ...partial };
     setProgressMap((m) => ({ ...m, [qid]: next }));
-    setSaving(true);
     const { error } = await supabase.from("user_question_progress").upsert(
       {
         user_id: userId,
@@ -189,7 +198,6 @@ export function LearningApp({
       { onConflict: "user_id,question_id" }
     );
     if (error) console.error("save failed", error);
-    setSaving(false);
   };
 
   const restingCount = useMemo(
@@ -304,6 +312,7 @@ export function LearningApp({
   const saveMemoAndNext = () => {
     const q = deck[idx];
     persist(q.id, { memo: memoText });
+    window.scrollTo({ top: 0, behavior: "smooth" });
     if (idx + 1 >= deck.length) {
       setScreen("done");
     } else {
@@ -582,62 +591,70 @@ export function LearningApp({
             ))}
           </div>
 
-          {/* 出題モード */}
-          <p className="mb-2 text-sm font-bold text-slate-300">出題モード</p>
-          <div className="mb-2 flex gap-2">
-            <button
-              onClick={() => setMode("shuffle")}
-              className="flex-1 rounded-xl py-3 text-sm font-bold"
-              style={{
-                background: mode === "shuffle" ? "#2563eb" : "#1e2d3d",
-                color: mode === "shuffle" ? "#fff" : "#94a3b8",
-              }}
-            >
-              🔀 シャッフル
-            </button>
-            <button
-              onClick={() => setMode("priority")}
-              className="flex-1 rounded-xl py-3 text-sm font-bold"
-              style={{
-                background: mode === "priority" ? "#dc2626" : "#1e2d3d",
-                color: mode === "priority" ? "#fff" : "#94a3b8",
-              }}
-            >
-              🔥 弱点優先
-            </button>
-          </div>
-          <p className="mb-4 text-[11px] text-muted2">
-            {mode === "priority"
-              ? "間違えた回数が多い問題から優先的に出題"
-              : "選択した分野からランダムに出題"}
-            ｜3回連続正解は2週間出題されません
-          </p>
-
-          {/* 想起モード */}
-          <div className="mb-4 flex items-center justify-between rounded-xl bg-card2 px-4 py-3">
-            <div>
-              <p className="text-sm font-bold text-slate-300">🧠 想起モード</p>
-              <p className="text-[11px] text-muted2">選択肢を隠して先に考える（検索練習効果）</p>
-            </div>
-            <button
-              onClick={() => setRecallMode((v) => !v)}
-              className="relative inline-flex h-6 w-11 items-center rounded-full transition-colors"
-              style={{ background: recallMode ? "#2563eb" : "#2a3648" }}
-            >
-              <span
-                className="inline-block h-4 w-4 rounded-full bg-white shadow transition-transform"
-                style={{ transform: recallMode ? "translateX(22px)" : "translateX(2px)" }}
-              />
-            </button>
-          </div>
-
+          {/* ★ スタート（主動線） */}
           <button
             onClick={startQuiz}
             disabled={!eligible.length}
-            className="mb-3 w-full rounded-xl bg-gradient-to-br from-primary to-primary2 py-4 text-base font-bold text-white disabled:from-slate-700 disabled:to-slate-700"
+            className="mb-5 w-full rounded-xl bg-gradient-to-br from-primary to-primary2 py-4 text-base font-bold text-white disabled:from-slate-700 disabled:to-slate-700"
           >
             スタート（{Math.min(count, eligible.length)}問）
           </button>
+
+          {/* 詳細設定（折りたたみ感覚で下に） */}
+          <details className="mb-4 group" open={mode === "priority" || recallMode}>
+            <summary className="mb-3 cursor-pointer list-none text-[11px] font-bold text-slate-500 group-open:text-slate-400">
+              ▸ 詳細設定（モード・想起）
+            </summary>
+
+            {/* 出題モード */}
+            <p className="mb-2 text-sm font-bold text-slate-300">出題モード</p>
+            <div className="mb-2 flex gap-2">
+              <button
+                onClick={() => setMode("shuffle")}
+                className="flex-1 rounded-xl py-3 text-sm font-bold"
+                style={{
+                  background: mode === "shuffle" ? "#2563eb" : "#1e2d3d",
+                  color: mode === "shuffle" ? "#fff" : "#94a3b8",
+                }}
+              >
+                🔀 シャッフル
+              </button>
+              <button
+                onClick={() => setMode("priority")}
+                className="flex-1 rounded-xl py-3 text-sm font-bold"
+                style={{
+                  background: mode === "priority" ? "#dc2626" : "#1e2d3d",
+                  color: mode === "priority" ? "#fff" : "#94a3b8",
+                }}
+              >
+                🔥 弱点優先
+              </button>
+            </div>
+            <p className="mb-4 text-[11px] text-muted2">
+              {mode === "priority"
+                ? "間違えた回数が多い問題から優先的に出題"
+                : "選択した分野からランダムに出題"}
+              ｜3回連続正解は2週間出題されません
+            </p>
+
+            {/* 想起モード */}
+            <div className="flex items-center justify-between rounded-xl bg-card2 px-4 py-3">
+              <div>
+                <p className="text-sm font-bold text-slate-300">🧠 想起モード</p>
+                <p className="text-[11px] text-muted2">選択肢を隠して先に考える（検索練習効果）</p>
+              </div>
+              <button
+                onClick={() => setRecallMode((v) => !v)}
+                className="relative inline-flex h-6 w-11 items-center rounded-full transition-colors"
+                style={{ background: recallMode ? "#2563eb" : "#2a3648" }}
+              >
+                <span
+                  className="inline-block h-4 w-4 rounded-full bg-white shadow transition-transform"
+                  style={{ transform: recallMode ? "translateX(22px)" : "translateX(2px)" }}
+                />
+              </button>
+            </div>
+          </details>
 
           <div className="mb-2 flex gap-2">
             <button
@@ -840,11 +857,12 @@ export function LearningApp({
             </div>
           </div>
 
-          {/* スキルツリー：分野別習得マップ */}
-          <p className="mb-2.5 text-sm font-bold text-slate-300">🗺 スキルツリー（分野別習得率）</p>
+          {/* スキルツリー：分野別習得マップ + 正答率 */}
+          <p className="mb-2.5 text-sm font-bold text-slate-300">🗺 分野別スキルツリー</p>
           <div className="mb-5 flex flex-col gap-2">
             {catMastery.map((cm) => {
               const pct = Math.round(cm.mastery * 100);
+              const stat = catStats.find((s) => s.id === cm.id);
               return (
                 <div key={cm.id} className="rounded-xl bg-card2 p-3">
                   <div className="mb-1.5 flex items-center justify-between">
@@ -855,7 +873,12 @@ export function LearningApp({
                       />
                       <span className="text-[12px] font-bold text-slate-300">{cm.name}</span>
                     </div>
-                    <div className="flex items-center gap-2">
+                    <div className="flex items-center gap-2.5">
+                      {stat?.acc !== null && stat?.acc !== undefined && (
+                        <span className="text-[10px] text-muted2">
+                          正答{stat.acc}%（誤{stat.w}/正{stat.cc}）
+                        </span>
+                      )}
                       <span className="text-[10px] text-muted2">
                         {cm.masteredCount}/{cm.total}習得
                       </span>
@@ -883,36 +906,6 @@ export function LearningApp({
               );
             })}
           </div>
-
-          <p className="mb-2.5 text-sm font-bold text-slate-300">
-            分野別 正答率（累計・模試の誤答含む）
-          </p>
-          {catStats.map((s) => (
-            <div key={s.id} className="mb-2.5">
-              <div className="mb-1 flex justify-between">
-                <span className="text-xs font-bold" style={{ color: s.color }}>
-                  {s.name}
-                </span>
-                <span className="text-xs text-muted">
-                  {s.acc !== null ? `${s.acc}%（誤${s.w}/正${s.cc}）` : "未演習"}
-                </span>
-              </div>
-              <div className="h-2 overflow-hidden rounded bg-card2">
-                <div
-                  className="h-full rounded"
-                  style={{
-                    width: `${s.acc ?? 0}%`,
-                    background:
-                      (s.acc ?? 0) >= 70
-                        ? "#16a34a"
-                        : (s.acc ?? 0) >= 40
-                          ? "#f59e0b"
-                          : "#dc2626",
-                  }}
-                />
-              </div>
-            </div>
-          ))}
 
           <p className="mb-2.5 mt-5 text-sm font-bold text-slate-300">
             🔥 最重点問題トップ8（誤答−正答が大きい順）
@@ -1118,7 +1111,7 @@ export function LearningApp({
           <span className="text-sm font-semibold text-muted">
             {idx + 1} / {deck.length}
           </span>
-          <span className="text-[11px] text-muted2">{saving ? "保存中…" : "保存済み"}</span>
+          <span className="text-[11px] text-muted2">{q.category_name}</span>
         </div>
         <div className="h-1 rounded bg-card2">
           <div
@@ -1131,26 +1124,28 @@ export function LearningApp({
       <div className={card}>
         {/* カテゴリ + 統計 */}
         <div className="mb-3.5 flex items-center justify-between">
-          <span
-            className="rounded-2xl px-3 py-1 text-[11px] font-bold"
-            style={{
-              background: q.category_color + "22",
-              border: `1px solid ${q.category_color}55`,
-              color: q.category_color,
-            }}
-          >
-            {q.category_name}
-          </span>
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-1.5">
+            <span
+              className="rounded-2xl px-3 py-1 text-[11px] font-bold"
+              style={{
+                background: q.category_color + "22",
+                border: `1px solid ${q.category_color}55`,
+                color: q.category_color,
+              }}
+            >
+              {q.category_name}
+            </span>
             {q.question_type === "multi" && (
               <span className="rounded-md bg-blue-900/40 px-2 py-0.5 text-[10px] font-bold text-blue-300">
                 複数選択
               </span>
             )}
-            <span className="text-[11px] text-muted2">
-              誤答 {totalWrong(q, p)}回 / 連続正解 {p.consecutive_correct}
-            </span>
           </div>
+          <span className="text-[11px] text-muted2">
+            {p.correct_count + p.wrong_count === 0
+              ? "初挑戦"
+              : `誤${totalWrong(q, p)} 連${p.consecutive_correct}`}
+          </span>
         </div>
 
         {/* 問題文 */}
@@ -1179,9 +1174,19 @@ export function LearningApp({
           <>
             {/* 確信度（回答前に選択する） */}
             {!answered && (
-              <div className="mb-3.5">
-                <p className="mb-1.5 text-xs font-bold text-slate-400">
-                  確信度を選んでから回答する
+              <div
+                className="mb-3.5 rounded-xl p-2.5 transition-all"
+                style={
+                  confidence === null
+                    ? { background: "rgba(234,179,8,0.07)", border: "1px solid rgba(234,179,8,0.25)" }
+                    : { background: "transparent", border: "1px solid transparent" }
+                }
+              >
+                <p
+                  className="mb-1.5 text-xs font-bold"
+                  style={{ color: confidence === null ? "#fbbf24" : "#64748b" }}
+                >
+                  {confidence === null ? "① まず確信度を選ぶ" : "確信度を選択済み"}
                 </p>
                 <div className="flex gap-1.5">
                   {CONFIDENCE_LABELS.map((label, i) => {
@@ -1204,11 +1209,6 @@ export function LearningApp({
                     );
                   })}
                 </div>
-                {confidence === null && (
-                  <p className="mt-1.5 text-center text-[10px] text-muted2">
-                    ↑ 確信度を選ぶと選択肢が有効になります
-                  </p>
-                )}
               </div>
             )}
 
@@ -1299,9 +1299,9 @@ export function LearningApp({
 
             <button
               onClick={saveMemoAndNext}
-              className="w-full rounded-xl bg-gradient-to-br from-primary to-primary2 py-3.5 text-sm font-bold text-white"
+              className="w-full rounded-xl bg-gradient-to-br from-primary to-primary2 py-4 text-sm font-bold text-white"
             >
-              {idx + 1 >= deck.length ? "結果を見る" : "保存して次へ →"}
+              {idx + 1 >= deck.length ? "結果を見る 🏁" : "次の問題へ →"}
             </button>
           </>
         )}
