@@ -40,7 +40,7 @@ export default async function LogPage() {
     new Date().getTime() - 90 * 24 * 60 * 60 * 1000
   ).toISOString();
 
-  const { data: events } = await supabase
+  const { data: events, error: eventsError } = await supabase
     .from("answer_events")
     .select(
       "answered_at, is_correct, confidence, category_name, category_color, subject_slug"
@@ -50,7 +50,40 @@ export default async function LogPage() {
     .order("answered_at", { ascending: false })
     .limit(5000);
 
-  const rows = events ?? [];
+  let rows: {
+    answered_at: string;
+    is_correct: boolean;
+    confidence: number | null;
+    category_name: string;
+    category_color: string;
+    subject_slug: string;
+  }[] = [];
+
+  if (!eventsError) {
+    rows = events ?? [];
+  } else {
+    // answer_events テーブル未作成時は user_question_progress で代替
+    console.warn("[log] answer_events unavailable, falling back to user_question_progress:", eventsError.code);
+    const { data: prog } = await supabase
+      .from("user_question_progress")
+      .select(
+        "last_answered_at, last_is_correct, last_confidence, questions(categories(name, color), subjects(slug))"
+      )
+      .eq("user_id", user.id)
+      .not("last_answered_at", "is", null)
+      .gte("last_answered_at", ninetyDaysAgo)
+      .order("last_answered_at", { ascending: false })
+      .limit(5000);
+
+    rows = (prog ?? []).map((p: any) => ({
+      answered_at: p.last_answered_at as string,
+      is_correct: p.last_is_correct ?? false,
+      confidence: p.last_confidence ?? null,
+      category_name: p.questions?.categories?.name ?? "不明",
+      category_color: p.questions?.categories?.color ?? "#64748b",
+      subject_slug: p.questions?.subjects?.slug ?? "",
+    }));
+  }
 
   return (
     <LogClient

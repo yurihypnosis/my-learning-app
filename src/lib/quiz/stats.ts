@@ -43,11 +43,14 @@ export function questionMastery(q: QuizQuestion, p: Progress): number {
 }
 
 export interface MasteryStats {
-  avgMastery: number;    // 0–1
-  passProb: number;      // 5–95 (%)
-  masteredCount: number; // mastery >= 0.8
-  weakCount: number;     // mastery < 0.3 (未着手含む)
-  attempted: number;     // 演習済み問題数
+  avgMastery: number;          // 0–1 全問題平均（未着手=0として含む）
+  avgMasteryAttempted: number; // 0–1 試行済みのみの平均
+  passProb: number;            // 5–95 (%)
+  masteredCount: number;       // mastery >= 0.8（試行済みのみ）
+  weakCount: number;           // 試行済み AND mastery < 0.3
+  untestedCount: number;       // 未着手（0回答）
+  attempted: number;           // 演習済み問題数
+  coverage: number;            // attempted / total (0–1)
 }
 
 export function calcMasteryStats(
@@ -55,24 +58,50 @@ export function calcMasteryStats(
   progressMap: ProgressMap
 ): MasteryStats {
   if (!questions.length) {
-    return { avgMastery: 0, passProb: 5, masteredCount: 0, weakCount: 0, attempted: 0 };
+    return {
+      avgMastery: 0, avgMasteryAttempted: 0, passProb: 5,
+      masteredCount: 0, weakCount: 0, untestedCount: 0, attempted: 0, coverage: 0,
+    };
   }
-  let total = 0;
+  let totalAll = 0;
+  let totalAttempted = 0;
   let masteredCount = 0;
   let weakCount = 0;
+  let untestedCount = 0;
   let attempted = 0;
+
   for (const q of questions) {
     const p = getProgress(progressMap, q.id);
     const m = questionMastery(q, p);
-    total += m;
-    if (m >= 0.8) masteredCount++;
-    if (m < 0.3) weakCount++;
-    if (p.correct_count + p.wrong_count > 0) attempted++;
+    totalAll += m;
+    const hasAttempt = p.correct_count + p.wrong_count > 0;
+    if (hasAttempt) {
+      attempted++;
+      totalAttempted += m;
+      if (m >= 0.8) masteredCount++;
+      if (m < 0.3) weakCount++;
+    } else {
+      untestedCount++;
+    }
   }
-  const avgMastery = total / questions.length;
-  // 0% → 5%, 50% → 50%, 100% → 95% のシグモイド的マッピング
-  const passProb = Math.max(5, Math.min(95, Math.round(avgMastery * 90 + 5)));
-  return { avgMastery, passProb, masteredCount, weakCount, attempted };
+
+  const avgMastery = totalAll / questions.length;
+  const avgMasteryAttempted = attempted > 0 ? totalAttempted / attempted : 0;
+  const coverage = attempted / questions.length;
+
+  // 合格確率 = 試行済みの習熟度 をベースに、カバレッジが低い分だけ控えめに割り引く
+  // 割引: coverage=1.0→係数1.0 / coverage=0.5→係数0.9 / coverage=0→係数0.8
+  // 新問題を追加しても avgMasteryAttempted は変わらず、係数も最大20%の変化に抑えられるため安定する
+  const coverageFactor = 1 - 0.2 * (1 - coverage);
+  const rawScore = attempted > 0 ? avgMasteryAttempted * coverageFactor : 0;
+  // ロジスティック関数: center=0.5, k=8 → rawScore=0で約7%、0.5で50%、1.0で約93%
+  const logit = 5 + 90 / (1 + Math.exp(-8 * (rawScore - 0.5)));
+  const passProb = attempted === 0 ? 5 : Math.max(5, Math.min(95, Math.round(logit)));
+
+  return {
+    avgMastery, avgMasteryAttempted, passProb,
+    masteredCount, weakCount, untestedCount, attempted, coverage,
+  };
 }
 
 export interface DailyRec {
@@ -119,9 +148,10 @@ export interface CategoryMastery {
   id: string;
   name: string;
   color: string;
-  mastery: number; // 0–1
-  masteredCount: number;
-  total: number;
+  mastery: number;       // 0–1 試行済み問題のみの平均（未着手は含まない）
+  masteredCount: number; // mastery >= 0.8
+  total: number;         // カテゴリ内全問題数
+  attempted: number;     // 試行済み問題数
 }
 
 export function calcCategoryMastery(
@@ -131,20 +161,25 @@ export function calcCategoryMastery(
 ): CategoryMastery[] {
   return categories.map((c) => {
     const qs = questions.filter((q) => q.category_id === c.id);
-    if (!qs.length) return { ...c, mastery: 0, masteredCount: 0, total: 0 };
-    let total = 0;
+    if (!qs.length) return { ...c, mastery: 0, masteredCount: 0, total: 0, attempted: 0 };
+    let totalMastery = 0;
     let masteredCount = 0;
+    let attempted = 0;
     for (const q of qs) {
       const p = getProgress(progressMap, q.id);
       const m = questionMastery(q, p);
-      total += m;
-      if (m >= 0.8) masteredCount++;
+      if (p.correct_count + p.wrong_count > 0) {
+        attempted++;
+        totalMastery += m;
+        if (m >= 0.8) masteredCount++;
+      }
     }
     return {
       ...c,
-      mastery: total / qs.length,
+      mastery: attempted > 0 ? totalMastery / attempted : 0,
       masteredCount,
       total: qs.length,
+      attempted,
     };
   });
 }

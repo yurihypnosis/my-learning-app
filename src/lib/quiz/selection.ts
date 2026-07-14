@@ -48,6 +48,39 @@ function shuffle<T>(arr: T[]): T[] {
   return a;
 }
 
+// 選択肢を表示用にシャッフルする。DB のデータ（options / correct_index）はそのままで、
+// 返す QuizQuestion 上でのみ順序を入れ替える。正解が A に偏る問題への対策。
+// 選択肢の並びに追従して correct_index・correct_indices・選択肢解説(opt) も付け替えるため、
+// レンダリング・採点・解説すべてが表示順のインデックスで一貫して動く。
+export function shuffleOptions(q: QuizQuestion): QuizQuestion {
+  const n = q.options.length;
+  if (n <= 1) return q;
+
+  // 選択肢解説が選択肢数と一致しない場合は、付け替えると解説が崩れるためシャッフルしない
+  const opt = q.explanation_data?.opt;
+  if (opt && opt.length !== n) return q;
+
+  const perm = shuffle(Array.from({ length: n }, (_, i) => i)); // perm[表示index] = 元index
+  const origToDisp = new Array<number>(n);
+  perm.forEach((orig, disp) => {
+    origToDisp[orig] = disp;
+  });
+
+  return {
+    ...q,
+    options: perm.map((orig) => q.options[orig]),
+    correct_index: origToDisp[q.correct_index],
+    correct_indices: q.correct_indices
+      ? q.correct_indices.map((ci) => origToDisp[ci]).sort((a, b) => a - b)
+      : null,
+    explanation_data:
+      q.explanation_data && opt
+        ? { ...q.explanation_data, opt: perm.map((orig) => opt[orig]) }
+        : q.explanation_data,
+    optionOrder: perm,
+  };
+}
+
 // 出題対象（分野で絞り、休眠を除外）
 export function eligibleQuestions(
   questions: QuizQuestion[],
@@ -90,8 +123,8 @@ export function buildDeck({
       const scoreB = totalWrong(b, pb) - totalCorrect(pb) * 0.6;
       return scoreB - scoreA;
     });
-    return shuffle(sorted.slice(0, count));
+    return shuffle(sorted.slice(0, count)).map(shuffleOptions);
   }
 
-  return shuffle(pool).slice(0, count);
+  return shuffle(pool).slice(0, count).map(shuffleOptions);
 }

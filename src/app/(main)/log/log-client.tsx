@@ -23,9 +23,10 @@ interface DayEntry {
 }
 
 const SUBJECT_LABELS: Record<string, string> = {
-  "gcp-ace": "GCP ACE",
-  "gh-200":  "GH-200",
-  "dca":     "DCA",
+  "gcp-ace":       "GCP ACE",
+  "gh-200":        "GH-200",
+  "dca":           "DCA",
+  "istqb-ctal-ta": "ISTQB TA",
 };
 
 const WEEKDAYS = ["日", "月", "火", "水", "木", "金", "土"];

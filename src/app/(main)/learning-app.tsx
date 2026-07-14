@@ -14,6 +14,7 @@ import {
   eligibleQuestions,
   getProgress,
   isResting,
+  shuffleOptions,
   totalCorrect,
   totalWrong,
   type ProgressMap,
@@ -30,6 +31,14 @@ import {
 
 type Screen = "menu" | "quiz" | "done" | "analysis" | "export" | "goal";
 type SessionResult = { correct: boolean; category: string; color: string };
+// クイズ中の1問ごとの解答状態スナップショット（前後移動時の復元用）
+type QState = {
+  picked: number | null;
+  multiSelected: number[];
+  answered: boolean;
+  confidence: number | null;
+  choicesHidden: boolean;
+};
 
 const CONFIDENCE_LABELS = ["確信あり", "迷った", "勘"] as const;
 const CONFIDENCE_COLORS = ["#22c55e", "#f59e0b", "#ef4444"] as const;
@@ -128,6 +137,8 @@ export function LearningApp({
   const [answered, setAnswered] = useState(false);
   const [confidence, setConfidence] = useState<number | null>(null);
   const [choicesHidden, setChoicesHidden] = useState(false);
+  // 「前の問題に戻る」用: デッキ位置ごとに解答状態を保持し、行き来しても復元できるようにする
+  const [qStates, setQStates] = useState<Record<number, QState>>({});
 
   const [sessionResults, setSessionResults] = useState<SessionResult[]>([]);
   const [memoText, setMemoText] = useState("");
@@ -172,7 +183,9 @@ export function LearningApp({
       subject_slug: currentSubjectSlug,
       is_correct: isCorrect,
       confidence: conf,
-    }).then(() => {});
+    }).then(({ error }) => {
+      if (error) console.error("[answer_events] insert failed:", error.code, error.message);
+    });
   };
 
   const persist = async (qid: string, partial: Partial<Progress>) => {
@@ -208,8 +221,7 @@ export function LearningApp({
     [questions, progressMap, selCats, now]
   );
 
-  const startQuiz = () => {
-    const pool = buildDeck({ questions, progressMap, selectedCategoryIds: selCats, count, mode, now });
+  const enterQuiz = (pool: QuizQuestion[]) => {
     if (!pool.length) return;
     setSessionStartPassProb(calcMasteryStats(questions, progressMap).passProb);
     setDeck(pool);
@@ -220,8 +232,18 @@ export function LearningApp({
     setConfidence(null);
     setChoicesHidden(recallMode);
     setSessionResults([]);
+    setQStates({});
     setMemoText(getProgress(progressMap, pool[0].id).memo);
     setScreen("quiz");
+  };
+
+  const startQuiz = () => {
+    enterQuiz(buildDeck({ questions, progressMap, selectedCategoryIds: selCats, count, mode, now }));
+  };
+
+  // 苦手問題など、指定した問題だけを復習するセッションを開始（選択肢はシャッフル）
+  const startReview = (qs: QuizQuestion[]) => {
+    enterQuiz(qs.map(shuffleOptions));
   };
 
   const toggleMulti = (i: number) => {
@@ -256,32 +278,60 @@ export function LearningApp({
       const magure = isCorrect && confidence === 3;
       setAnswered(true);
       const cur = getProgress(progressMap, q.id);
+      // 表示順でシャッフルしているため、保存は元(DB)のインデックスに戻す
+      const selectedOrig = q.optionOrder ? q.optionOrder[picked] : picked;
       const partial: Partial<Progress> = isCorrect
-        ? { correct_count: cur.correct_count + 1, consecutive_correct: magure ? 0 : cur.consecutive_correct + 1, last_is_correct: true, last_selected_index: picked, last_answered_at: new Date().toISOString(), last_confidence: confidence }
-        : { wrong_count: cur.wrong_count + 1, consecutive_correct: 0, last_is_correct: false, last_selected_index: picked, last_answered_at: new Date().toISOString(), last_confidence: confidence };
+        ? { correct_count: cur.correct_count + 1, consecutive_correct: magure ? 0 : cur.consecutive_correct + 1, last_is_correct: true, last_selected_index: selectedOrig, last_answered_at: new Date().toISOString(), last_confidence: confidence }
+        : { wrong_count: cur.wrong_count + 1, consecutive_correct: 0, last_is_correct: false, last_selected_index: selectedOrig, last_answered_at: new Date().toISOString(), last_confidence: confidence };
       setSessionResults((r) => [...r, { correct: isCorrect, category: q.category_name, color: q.category_color }]);
       persist(q.id, partial);
       recordAnswer(q, isCorrect, confidence);
     }
   };
 
-  const saveMemoAndNext = () => {
-    const q = deck[idx];
-    persist(q.id, { memo: memoText });
+  // 現在の問題の解答状態をスナップショット化
+  const snapshotCurrent = (): QState => ({
+    picked,
+    multiSelected: Array.from(multiSelected),
+    answered,
+    confidence,
+    choicesHidden,
+  });
+
+  // デッキ内の任意の問題へ移動。現在の状態を保存し、移動先の状態を復元（なければ新規）
+  const goToIndex = (target: number) => {
+    if (target < 0 || target >= deck.length || target === idx) return;
+    persist(deck[idx].id, { memo: memoText });
+    setQStates((m) => ({ ...m, [idx]: snapshotCurrent() }));
     window.scrollTo({ top: 0, behavior: "smooth" });
-    if (idx + 1 >= deck.length) {
-      setScreen("done");
+
+    const nq = deck[target];
+    const saved = qStates[target];
+    if (saved) {
+      setPicked(saved.picked);
+      setMultiSelected(new Set(saved.multiSelected));
+      setAnswered(saved.answered);
+      setConfidence(saved.confidence);
+      setChoicesHidden(saved.choicesHidden);
     } else {
-      const ni = idx + 1;
-      const nq = deck[ni];
-      setIdx(ni);
       setPicked(null);
       setMultiSelected(new Set());
       setAnswered(false);
       setConfidence(null);
       setChoicesHidden(recallMode);
-      setMemoText(getProgress(progressMap, nq.id).memo);
     }
+    setMemoText(getProgress(progressMap, nq.id).memo);
+    setIdx(target);
+  };
+
+  const saveMemoAndNext = () => {
+    if (idx + 1 >= deck.length) {
+      persist(deck[idx].id, { memo: memoText });
+      window.scrollTo({ top: 0, behavior: "smooth" });
+      setScreen("done");
+      return;
+    }
+    goToIndex(idx + 1);
   };
 
   const switchSubject = (slug: string) => {
@@ -752,6 +802,10 @@ export function LearningApp({
       .sort((a, b) => (a.acc ?? 101) - (b.acc ?? 101));
 
     const worst = [...questions]
+      .filter((q) => {
+        const p = getProgress(progressMap, q.id);
+        return p.correct_count + p.wrong_count > 0;
+      })
       .sort((a, b) => {
         const pa = getProgress(progressMap, a.id);
         const pb = getProgress(progressMap, b.id);
@@ -791,10 +845,13 @@ export function LearningApp({
                 style={{ width: `${masteryStats.passProb}%`, background: probColor }}
               />
             </div>
-            <div className="flex gap-4 text-xs text-[#555e70]">
-              <span>演習 {masteryStats.attempted} / {questions.length}</span>
+            <div className="flex flex-wrap gap-4 text-xs text-[#555e70]">
+              <span>カバー {Math.round(masteryStats.coverage * 100)}%</span>
               <span>習得 {masteryStats.masteredCount}</span>
               <span>弱点 {masteryStats.weakCount}</span>
+              {masteryStats.untestedCount > 0 && (
+                <span>未着手 {masteryStats.untestedCount}</span>
+              )}
             </div>
           </div>
 
@@ -825,16 +882,16 @@ export function LearningApp({
                         className="w-9 text-right font-semibold"
                         style={{
                           color:
-                            pct >= 70
-                              ? "#22c55e"
-                              : pct >= 40
-                                ? "#f59e0b"
-                                : pct === 0
-                                  ? "#555e70"
+                            cm.attempted === 0
+                              ? "#555e70"
+                              : pct >= 70
+                                ? "#22c55e"
+                                : pct >= 40
+                                  ? "#f59e0b"
                                   : "#ef4444",
                         }}
                       >
-                        {pct === 0 ? "未着" : `${pct}%`}
+                        {cm.attempted === 0 ? "未着" : `${pct}%`}
                       </span>
                     </div>
                   </div>
@@ -854,16 +911,33 @@ export function LearningApp({
           </div>
 
           {/* Worst questions */}
-          <p className="mb-3 text-[10px] font-semibold uppercase tracking-widest text-[#555e70]">
-            最重点 8 問
+          <div className="mb-3 flex items-center justify-between">
+            <p className="text-[10px] font-semibold uppercase tracking-widest text-[#555e70]">
+              最重点 8 問
+            </p>
+            {worst.length > 0 && (
+              <button
+                onClick={() => startReview(worst)}
+                className="rounded-lg border border-[#2a2f3f] px-3 py-1 text-[11px] font-medium text-[#8892a4] transition hover:border-[#3b82f6] hover:text-white"
+              >
+                まとめて復習 →
+              </button>
+            )}
+          </div>
+          <p className="mb-3 text-[10px] text-[#3a4050]">
+            タップするとその問題だけを復習できます
           </p>
           <div className="mb-6 space-y-1.5">
+            {worst.length === 0 && (
+              <p className="text-xs text-[#555e70]">演習済み問題がありません</p>
+            )}
             {worst.map((q) => {
               const p = getProgress(progressMap, q.id);
               return (
-                <div
+                <button
                   key={q.id}
-                  className="flex items-start gap-3 rounded-xl border border-[#2a2f3f] px-3.5 py-3"
+                  onClick={() => startReview([q])}
+                  className="flex w-full items-start gap-3 rounded-xl border border-[#2a2f3f] px-3.5 py-3 text-left transition hover:border-[#3b82f6] hover:bg-[#141720]"
                 >
                   <span
                     className="mt-0.5 h-2 w-2 shrink-0 rounded-full"
@@ -882,7 +956,8 @@ export function LearningApp({
                       )}
                     </p>
                   </div>
-                </div>
+                  <span className="mt-0.5 shrink-0 text-xs text-[#3a4050]">→</span>
+                </button>
               );
             })}
           </div>
@@ -1065,6 +1140,14 @@ export function LearningApp({
       {/* Progress */}
       <div className="mb-4 w-full max-w-[520px]">
         <div className="mb-2 flex items-center gap-3">
+          <button
+            onClick={() => goToIndex(idx - 1)}
+            disabled={idx === 0}
+            className="shrink-0 rounded-lg border border-[#2a2f3f] px-2.5 py-1 text-xs text-[#8892a4] transition hover:border-[#3b82f6] hover:text-white disabled:cursor-default disabled:border-transparent disabled:text-transparent"
+            aria-label="前の問題へ戻る"
+          >
+            ← 前へ
+          </button>
           <span className="min-w-[40px] text-xs tabular-nums text-[#555e70]">
             {idx + 1} / {deck.length}
           </span>

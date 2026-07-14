@@ -32,6 +32,9 @@ export interface QuizQuestion {
   category_id: string;
   category_name: string;
   category_color: string;
+  // 表示用に選択肢をシャッフルした場合のみ設定。optionOrder[表示index] = 元(DB)のindex。
+  // 正解の偏り対策として buildDeck で付与される。未シャッフルなら undefined。
+  optionOrder?: number[];
 }
 
 // user_question_progress のうちクイズ判定に使う部分
