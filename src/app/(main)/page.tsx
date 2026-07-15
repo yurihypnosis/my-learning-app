@@ -38,25 +38,66 @@ export default async function HomePage({
     );
   }
 
-  const subject = subjects.find((s) => s.slug === subjectSlug) ?? subjects[0];
+  // subject 非依存のデータを先に読む（着地セットの判定・全体の集計に使う）。
+  const [{ data: rawProgress }, { data: allQ }] = await Promise.all([
+    supabase.from("user_question_progress").select("*").eq("user_id", user!.id),
+    supabase.from("questions").select("id, subject_id, category_id").eq("is_active", true),
+  ]);
 
-  const [{ data: categories }, { data: rawQuestions }, { data: rawProgress }] =
-    await Promise.all([
-      supabase
-        .from("categories")
-        .select("*")
-        .eq("subject_id", subject.id)
-        .order("sort_order"),
-      supabase
-        .from("questions")
-        .select("*")
-        .eq("subject_id", subject.id)
-        .eq("is_active", true),
-      supabase
-        .from("user_question_progress")
-        .select("*")
-        .eq("user_id", user!.id),
-    ]);
+  const progressMap: ProgressMap = {};
+  for (const p of rawProgress ?? []) {
+    const prog: Progress = {
+      question_id: p.question_id,
+      correct_count: p.correct_count,
+      wrong_count: p.wrong_count,
+      consecutive_correct: p.consecutive_correct,
+      last_is_correct: p.last_is_correct,
+      last_selected_index: p.last_selected_index,
+      last_answered_at: p.last_answered_at,
+      understanding_level: p.understanding_level,
+      memo: p.memo,
+      last_confidence: (p.last_confidence as number | null) ?? null,
+    };
+    progressMap[p.question_id] = prog;
+  }
+
+  const idToSlug = new Map(subjects.map((s) => [s.id, s.slug]));
+
+  // 着地するセットを決める:
+  //  - ?subject 指定があればそれ
+  //  - 無ければ「最後に学習したセット」（home が特定セットに固定表示されないように）
+  //  - どれも未学習なら先頭
+  let lastStudied: (typeof subjects)[number] | undefined;
+  {
+    const lastTsBySubject = new Map<string, number>();
+    for (const q of allQ ?? []) {
+      const at = progressMap[q.id]?.last_answered_at;
+      const ts = at ? Date.parse(at) : NaN;
+      if (!Number.isNaN(ts)) {
+        lastTsBySubject.set(
+          q.subject_id,
+          Math.max(lastTsBySubject.get(q.subject_id) ?? -Infinity, ts)
+        );
+      }
+    }
+    let bestTs = -Infinity;
+    for (const s of subjects) {
+      const ts = lastTsBySubject.get(s.id);
+      if (ts !== undefined && ts > bestTs) {
+        bestTs = ts;
+        lastStudied = s;
+      }
+    }
+  }
+  const subject = subjectSlug
+    ? (subjects.find((s) => s.slug === subjectSlug) ?? subjects[0])
+    : (lastStudied ?? subjects[0]);
+
+  // subject 固有データ
+  const [{ data: categories }, { data: rawQuestions }] = await Promise.all([
+    supabase.from("categories").select("*").eq("subject_id", subject.id).order("sort_order"),
+    supabase.from("questions").select("*").eq("subject_id", subject.id).eq("is_active", true),
+  ]);
 
   const catMap = new Map((categories ?? []).map((c) => [c.id, c]));
 
@@ -79,32 +120,6 @@ export default async function HomePage({
       category_color: cat?.color ?? "#64748b",
     };
   });
-
-  const progressMap: ProgressMap = {};
-  for (const p of rawProgress ?? []) {
-    const prog: Progress = {
-      question_id: p.question_id,
-      correct_count: p.correct_count,
-      wrong_count: p.wrong_count,
-      consecutive_correct: p.consecutive_correct,
-      last_is_correct: p.last_is_correct,
-      last_selected_index: p.last_selected_index,
-      last_answered_at: p.last_answered_at,
-      understanding_level: p.understanding_level,
-      memo: p.memo,
-      last_confidence: (p.last_confidence as number | null) ?? null,
-    };
-    progressMap[p.question_id] = prog;
-  }
-
-  // ── 問題集セット一覧（試験ごとの学習状況）──
-  // 全セット分の「問題id × subject」を軽量に読み込み、進捗(全件ロード済み)から
-  // 各セットの演習量・得点率・最終学習日を算出して試験単位にまとめる。
-  const idToSlug = new Map(subjects.map((s) => [s.id, s.slug]));
-  const { data: allQ } = await supabase
-    .from("questions")
-    .select("id, subject_id, category_id")
-    .eq("is_active", true);
   const refs: QuestionSubjectRef[] = (allQ ?? [])
     .map((q) => ({ id: q.id, slug: idToSlug.get(q.subject_id) ?? "" }))
     .filter((r): r is QuestionSubjectRef => r.slug !== "");
