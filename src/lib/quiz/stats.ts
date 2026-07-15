@@ -305,6 +305,9 @@ export interface ExamGroup {
   sets: SubjectStat[];
   total: number;            // 試験全体の全問題数
   attempted: number;        // 試験全体の演習済み問題数
+  answers: number;          // 試験全体の総解答回数
+  correct: number;          // 試験全体の正解回数
+  accuracy: number;         // 0–1 試験全体の得点率
   lastAnsweredAt: string | null;
 }
 
@@ -381,10 +384,22 @@ export function groupSubjectsByExam(stats: SubjectStat[]): ExamGroup[] {
       .sort((a, b) => a.length - b.length)[0] ?? sets[0].name;
     const total = sets.reduce((n, s) => n + s.total, 0);
     const attempted = sets.reduce((n, s) => n + s.attempted, 0);
+    const answers = sets.reduce((n, s) => n + s.answers, 0);
+    const correct = sets.reduce((n, s) => n + s.correct, 0);
     const lastAnsweredAt = sets.reduce<string | null>(
       (acc, s) => (s.lastAnsweredAt && (!acc || s.lastAnsweredAt > acc) ? s.lastAnsweredAt : acc),
       null
     );
-    return { examKey, examName, sets, total, attempted, lastAnsweredAt };
+    return {
+      examKey,
+      examName,
+      sets,
+      total,
+      attempted,
+      answers,
+      correct,
+      accuracy: answers > 0 ? correct / answers : 0,
+      lastAnsweredAt,
+    };
   });
 }

@@ -128,6 +128,37 @@ function fmtLastStudied(iso: string | null, now: number): string {
 const accColor = (acc: number, answers: number): string =>
   answers === 0 ? "#555e70" : acc >= 0.7 ? "#22c55e" : acc >= 0.5 ? "#f59e0b" : "#ef4444";
 
+// 得点率＋演習量・最終学習日をまとめた右端の統計セル（試験行・セット行で共用）。
+function StatCell({
+  accuracy,
+  answers,
+  attempted,
+  total,
+  last,
+  now,
+}: {
+  accuracy: number;
+  answers: number;
+  attempted: number;
+  total: number;
+  last: string | null;
+  now: number;
+}) {
+  return (
+    <span className="shrink-0 text-right leading-tight">
+      <span
+        className="block font-mono text-[11px] tabular-nums"
+        style={{ color: accColor(accuracy, answers) }}
+      >
+        {answers === 0 ? "—" : `${Math.round(accuracy * 100)}%`}
+      </span>
+      <span className="block text-[9px] text-[#555e70]">
+        {attempted}/{total} · {fmtLastStudied(last, now)}
+      </span>
+    </span>
+  );
+}
+
 export function LearningApp({
   userId,
   subjects,
@@ -143,6 +174,12 @@ export function LearningApp({
   const [progressMap, setProgressMap] = useState<ProgressMap>(initialProgress);
   const [screen, setScreen] = useState<Screen>("menu");
   const [pickerOpen, setPickerOpen] = useState(false);
+  // 問題集ピッカーは試験単位に折りたたみ、1試験だけ展開する（学習中の試験を初期展開）。
+  const currentExamKey = useMemo(
+    () => examGroups.find((g) => g.sets.some((s) => s.slug === currentSubjectSlug))?.examKey ?? null,
+    [examGroups, currentSubjectSlug]
+  );
+  const [expandedExam, setExpandedExam] = useState<string | null>(currentExamKey);
   const [selCats, setSelCats] = useState<Set<string>>(
     () => new Set(categories.map((c) => c.id))
   );
@@ -478,55 +515,116 @@ export function LearningApp({
                       onClick={() => setPickerOpen(false)}
                       className="fixed inset-0 z-40 cursor-default"
                     />
-                    <div className="absolute right-0 z-50 mt-2 max-h-[70vh] w-[340px] overflow-auto rounded-xl border border-[#2a2f3f] bg-[#12141c] p-2 shadow-2xl">
-                      {examGroups.map((g) => (
-                        <div key={g.examKey} className="mb-1.5 last:mb-0">
-                          <div className="flex items-baseline justify-between px-2 pb-1 pt-1.5">
-                            <span className="truncate text-[11px] font-semibold text-[#8892a4]">
-                              {g.examName}
-                            </span>
-                            <span className="shrink-0 pl-2 font-mono text-[10px] text-[#555e70]">
-                              {g.attempted}/{g.total}
-                            </span>
-                          </div>
-                          <div className="space-y-0.5">
-                            {g.sets.map((s) => {
-                              const active = s.slug === currentSubjectSlug;
-                              return (
-                                <button
-                                  key={s.slug}
-                                  onClick={() => {
-                                    setPickerOpen(false);
-                                    if (s.slug !== currentSubjectSlug) switchSubject(s.slug);
-                                  }}
-                                  className={`flex w-full items-center gap-2 rounded-lg px-2 py-2 text-left transition ${
-                                    active ? "bg-[#1e2230]" : "hover:bg-[#1a1d27]"
-                                  }`}
-                                >
-                                  <span
-                                    className={`min-w-0 flex-1 truncate text-xs ${
-                                      active ? "font-medium text-white" : "text-[#c0c8d8]"
-                                    }`}
-                                  >
-                                    {s.name}
-                                  </span>
-                                  <span className="shrink-0 text-right leading-tight">
-                                    <span
-                                      className="block font-mono text-[11px] tabular-nums"
-                                      style={{ color: accColor(s.accuracy, s.answers) }}
+                    <div className="absolute right-0 z-50 mt-2 max-h-[70vh] w-[340px] overflow-auto rounded-xl border border-[#2a2f3f] bg-[#12141c] p-1.5 shadow-2xl">
+                      {examGroups.map((g) => {
+                        // 単一セットの試験はそのまま1行で選択可能にする。
+                        if (g.sets.length === 1) {
+                          const s = g.sets[0];
+                          const active = s.slug === currentSubjectSlug;
+                          return (
+                            <button
+                              key={g.examKey}
+                              onClick={() => {
+                                setPickerOpen(false);
+                                if (!active) switchSubject(s.slug);
+                              }}
+                              className={`flex w-full items-center gap-2 rounded-lg px-2 py-2 text-left transition ${
+                                active ? "bg-[#1e2230]" : "hover:bg-[#1a1d27]"
+                              }`}
+                            >
+                              <span
+                                className={`min-w-0 flex-1 truncate text-xs ${
+                                  active ? "font-medium text-white" : "text-[#c0c8d8]"
+                                }`}
+                              >
+                                {g.examName}
+                              </span>
+                              <StatCell
+                                accuracy={s.accuracy}
+                                answers={s.answers}
+                                attempted={s.attempted}
+                                total={s.total}
+                                last={s.lastAnsweredAt}
+                                now={now}
+                              />
+                            </button>
+                          );
+                        }
+
+                        // 複数セットの試験は「試験見出し（集計）」を1行に折りたたみ、
+                        // クリックで展開してセット一覧を表示する。
+                        const open = expandedExam === g.examKey;
+                        const hasCurrent = g.sets.some((s) => s.slug === currentSubjectSlug);
+                        return (
+                          <div key={g.examKey}>
+                            <button
+                              onClick={() => setExpandedExam(open ? null : g.examKey)}
+                              className={`flex w-full items-center gap-2 rounded-lg px-2 py-2 text-left transition hover:bg-[#1a1d27] ${
+                                hasCurrent && !open ? "bg-[#161922]" : ""
+                              }`}
+                            >
+                              <svg
+                                width="9"
+                                height="9"
+                                viewBox="0 0 10 10"
+                                fill="none"
+                                className="shrink-0 transition-transform"
+                                style={{ transform: open ? "rotate(90deg)" : "none", color: "#8892a4" }}
+                              >
+                                <path d="M3.5 2L6.5 5L3.5 8" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round" />
+                              </svg>
+                              <span className="min-w-0 flex-1 truncate text-xs font-semibold text-[#c0c8d8]">
+                                {g.examName}
+                                <span className="ml-1.5 font-normal text-[#555e70]">{g.sets.length}セット</span>
+                              </span>
+                              <StatCell
+                                accuracy={g.accuracy}
+                                answers={g.answers}
+                                attempted={g.attempted}
+                                total={g.total}
+                                last={g.lastAnsweredAt}
+                                now={now}
+                              />
+                            </button>
+
+                            {open && (
+                              <div className="mb-1 ml-3.5 space-y-0.5 border-l border-[#2a2f3f] pl-2">
+                                {g.sets.map((s) => {
+                                  const active = s.slug === currentSubjectSlug;
+                                  return (
+                                    <button
+                                      key={s.slug}
+                                      onClick={() => {
+                                        setPickerOpen(false);
+                                        if (!active) switchSubject(s.slug);
+                                      }}
+                                      className={`flex w-full items-center gap-2 rounded-lg px-2 py-1.5 text-left transition ${
+                                        active ? "bg-[#1e2230]" : "hover:bg-[#1a1d27]"
+                                      }`}
                                     >
-                                      {s.answers === 0 ? "—" : `${Math.round(s.accuracy * 100)}%`}
-                                    </span>
-                                    <span className="block text-[9px] text-[#555e70]">
-                                      {s.attempted}/{s.total} · {fmtLastStudied(s.lastAnsweredAt, now)}
-                                    </span>
-                                  </span>
-                                </button>
-                              );
-                            })}
+                                      <span
+                                        className={`min-w-0 flex-1 truncate text-xs ${
+                                          active ? "font-medium text-white" : "text-[#c0c8d8]"
+                                        }`}
+                                      >
+                                        {s.name}
+                                      </span>
+                                      <StatCell
+                                        accuracy={s.accuracy}
+                                        answers={s.answers}
+                                        attempted={s.attempted}
+                                        total={s.total}
+                                        last={s.lastAnsweredAt}
+                                        now={now}
+                                      />
+                                    </button>
+                                  );
+                                })}
+                              </div>
+                            )}
                           </div>
-                        </div>
-                      ))}
+                        );
+                      })}
                     </div>
                   </>
                 )}
