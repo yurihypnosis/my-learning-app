@@ -1,6 +1,30 @@
 import { describe, expect, it } from "vitest";
-import { computeReadiness, retentionEstimate } from "./readiness";
+import {
+  capacityFromDailyCounts,
+  computeReadiness,
+  passLineFor,
+  retentionEstimate,
+} from "./readiness";
 import { emptyProgress, type Progress } from "./types";
+
+describe("passLineFor", () => {
+  it("uses per-exam pass lines, with a default", () => {
+    expect(passLineFor("ctal-ta")).toBe(0.65);
+    expect(passLineFor("gcp-pca")).toBe(0.7);
+    expect(passLineFor("unknown-exam")).toBe(0.72);
+    expect(passLineFor(null)).toBe(0.72);
+  });
+});
+
+describe("capacityFromDailyCounts", () => {
+  it("returns the median of active days, clamped", () => {
+    expect(capacityFromDailyCounts([10, 20, 30])).toBe(20);
+    expect(capacityFromDailyCounts([0, 0, 5])).toBe(10); // clamp min
+    expect(capacityFromDailyCounts([100, 100])).toBe(60); // clamp max
+    expect(capacityFromDailyCounts([])).toBe(20); // fallback
+    expect(capacityFromDailyCounts([], 15)).toBe(15);
+  });
+});
 
 const arr = (n: number, v: number) => Array.from({ length: n }, () => v);
 

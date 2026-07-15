@@ -8,6 +8,7 @@ import {
   type QuestionSubjectRef,
   type SectionQuestionRef,
 } from "@/lib/quiz/stats";
+import { capacityFromDailyCounts } from "@/lib/quiz/readiness";
 import { LearningApp } from "./learning-app";
 
 export const dynamic = "force-dynamic";
@@ -177,6 +178,21 @@ export default async function HomePage({
     : null;
   const examName = examGroups.find((g) => g.examKey === examKey)?.examName ?? subject.name;
 
+  // 合格ナビの逆算に使う1日 capacity を、直近の解答実績から推定する。
+  const { data: capEvents } = await supabase
+    .from("answer_events")
+    .select("answered_at")
+    .eq("user_id", user!.id)
+    .order("answered_at", { ascending: false })
+    .limit(5000);
+  const byDay = new Map<string, number>();
+  for (const e of capEvents ?? []) {
+    const d = new Date(e.answered_at as string);
+    const key = `${d.getFullYear()}-${d.getMonth()}-${d.getDate()}`;
+    byDay.set(key, (byDay.get(key) ?? 0) + 1);
+  }
+  const dailyCapacity = capacityFromDailyCounts([...byDay.values()]);
+
   return (
     <LearningApp
       userId={user!.id}
@@ -195,6 +211,7 @@ export default async function HomePage({
       goalExamKey={examKey}
       examName={examName}
       initialGoal={initialGoal}
+      dailyCapacity={dailyCapacity}
     />
   );
 }

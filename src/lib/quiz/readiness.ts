@@ -8,6 +8,30 @@ import { currentRetrievability } from "./fsrs";
 import { masteryFromProgress } from "./stats";
 import type { Progress } from "./types";
 
+// 試験別の合格ライン（0..1）。exam_key（examGroupKey の値）でひく。
+// 公表されている合格点の目安（GCP≈70% / ISTQB CTAL-TA≈65% / DCA≈66%）。
+export const EXAM_PASS_LINE: Record<string, number> = {
+  "gcp-ace": 0.7,
+  "gcp-pca": 0.7,
+  "gcp-pcde": 0.7,
+  "gh-200": 0.7,
+  dca: 0.66,
+  "ctal-ta": 0.65,
+};
+
+export function passLineFor(examKey: string | null | undefined): number {
+  return (examKey ? EXAM_PASS_LINE[examKey] : undefined) ?? 0.72;
+}
+
+// 直近の「1日あたり解答数」の配列から、現実的な1日 capacity を推定する。
+// 活動日（>0）の中央値を採用し、極端値を [10, 60] に丸める。
+export function capacityFromDailyCounts(dailyCounts: number[], fallback = 20): number {
+  const active = dailyCounts.filter((c) => c > 0).sort((a, b) => a - b);
+  if (active.length === 0) return fallback;
+  const mid = active[Math.floor(active.length / 2)];
+  return Math.min(60, Math.max(10, mid));
+}
+
 // 1 問の現在の定着推定 (0..1)。
 export function retentionEstimate(p: Progress, nowMs: number): number {
   if (p.fsrs_state === "review" && p.fsrs_last_review && (p.fsrs_stability ?? 0) > 0) {

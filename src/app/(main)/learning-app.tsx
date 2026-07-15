@@ -33,12 +33,9 @@ import {
   type Readiness,
   type Verdict,
   computeReadiness,
+  passLineFor,
   retentionEstimate,
 } from "@/lib/quiz/readiness";
-
-// 合格ナビの前提値（後で試験別に変更可能）
-const PASS_LINE = 0.8; // 合格ライン T
-const DAILY_CAPACITY = 20; // 1日に現実的にこなせる問数
 
 const VERDICT_META: Record<Verdict, { label: string; color: string }> = {
   passed: { label: "合格圏内", color: "#22c55e" },
@@ -173,6 +170,7 @@ interface Props {
   goalExamKey: string;
   examName: string;
   initialGoal: UserGoal | null;
+  dailyCapacity: number;
 }
 
 // 最終学習日を「今日 / 昨日 / N日前 / M/D」の短い表記にする。
@@ -235,6 +233,7 @@ export function LearningApp({
   goalExamKey,
   examName,
   initialGoal,
+  dailyCapacity,
 }: Props) {
   const router = useRouter();
   const [now, setNow] = useState(0);
@@ -242,6 +241,8 @@ export function LearningApp({
   const [screen, setScreen] = useState<Screen>("menu");
   const [pickerOpen, setPickerOpen] = useState(false);
   const [expandedSection, setExpandedSection] = useState<string | null>(null);
+  const [backfilling, setBackfilling] = useState(false);
+  const [backfillMsg, setBackfillMsg] = useState("");
   // 問題集ピッカーは試験単位に折りたたみ、1試験だけ展開する（学習中の試験を初期展開）。
   const currentExamKey = useMemo(
     () => examGroups.find((g) => g.sets.some((s) => s.slug === currentSubjectSlug))?.examKey ?? null,
@@ -402,10 +403,10 @@ export function LearningApp({
       total: ids.length,
       attempted,
       daysLeft,
-      capacity: DAILY_CAPACITY,
-      passLine: PASS_LINE,
+      capacity: dailyCapacity,
+      passLine: passLineFor(goalExamKey),
     });
-  }, [examSections, progressMap, goal, now]);
+  }, [examSections, progressMap, goal, now, dailyCapacity, goalExamKey]);
 
   const enterQuiz = (pool: QuizQuestion[]) => {
     if (!pool.length) return;
@@ -524,6 +525,23 @@ export function LearningApp({
 
   const switchSubject = (slug: string) => {
     router.push(slug ? `/?subject=${slug}` : "/");
+  };
+
+  // 過去の解答から FSRS 状態を一括再構築（合格ナビ/復習間隔を正確化）
+  const runBackfill = async () => {
+    setBackfilling(true);
+    setBackfillMsg("");
+    try {
+      const res = await fetch("/api/fsrs/backfill", { method: "POST" });
+      const j = await res.json();
+      if (!res.ok) throw new Error(j.error || "失敗");
+      setBackfillMsg(`${j.updated} 問を過去の解答から再構築しました`);
+      router.refresh();
+    } catch (e) {
+      setBackfillMsg("再構築に失敗しました: " + (e as Error).message);
+    } finally {
+      setBackfilling(false);
+    }
   };
 
   if (now === 0) {
@@ -1415,6 +1433,26 @@ export function LearningApp({
             <div className="rounded-lg border border-[#2a2f3f] bg-[#141720] py-2.5 text-center">
               <span className="text-lg font-bold tabular-nums text-[#8892a4]">{cal.unsureWrong}</span>
             </div>
+          </div>
+
+          {/* FSRS 再構築（過去の解答から記憶エンジンを一括計算） */}
+          <div className="mt-2 rounded-xl border border-[#2a2f3f] bg-[#141720] p-3.5">
+            <div className="flex items-center justify-between gap-3">
+              <div className="min-w-0">
+                <p className="text-xs font-medium text-[#c0c8d8]">記憶エンジンを再構築</p>
+                <p className="text-[11px] text-[#555e70]">
+                  過去の解答から復習間隔・合格ナビの精度を作り直します
+                </p>
+              </div>
+              <button
+                onClick={runBackfill}
+                disabled={backfilling}
+                className="shrink-0 rounded-lg border border-[#2a2f3f] px-3 py-1.5 text-[11px] font-medium text-[#8892a4] transition hover:border-[#3b82f6] hover:text-white disabled:opacity-50"
+              >
+                {backfilling ? "計算中…" : "⟳ 再構築"}
+              </button>
+            </div>
+            {backfillMsg && <p className="mt-2 text-[11px] text-[#3E8E6E]">{backfillMsg}</p>}
           </div>
         </div>
       </div>
