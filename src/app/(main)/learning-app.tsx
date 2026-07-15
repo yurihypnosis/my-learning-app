@@ -22,6 +22,7 @@ import {
 import { buildCSV, downloadCSV, type ExportMode } from "@/lib/quiz/csv";
 import {
   type UserGoal,
+  type ExamGroup,
   loadGoal,
   saveGoal,
   calcMasteryStats,
@@ -105,16 +106,34 @@ interface Props {
   subjects: { slug: string; name: string }[];
   currentSubjectSlug: string;
   subjectName: string;
+  examGroups: ExamGroup[];
   categories: { id: string; name: string; color: string }[];
   questions: QuizQuestion[];
   initialProgress: ProgressMap;
 }
+
+// 最終学習日を「今日 / 昨日 / N日前 / M/D」の短い表記にする。
+function fmtLastStudied(iso: string | null, now: number): string {
+  if (!iso) return "未学習";
+  const t = Date.parse(iso);
+  if (Number.isNaN(t)) return "未学習";
+  const days = Math.floor((now - t) / 86_400_000);
+  if (days <= 0) return "今日";
+  if (days === 1) return "昨日";
+  if (days < 7) return `${days}日前`;
+  const d = new Date(iso);
+  return `${d.getMonth() + 1}/${d.getDate()}`;
+}
+
+const accColor = (acc: number, answers: number): string =>
+  answers === 0 ? "#555e70" : acc >= 0.7 ? "#22c55e" : acc >= 0.5 ? "#f59e0b" : "#ef4444";
 
 export function LearningApp({
   userId,
   subjects,
   currentSubjectSlug,
   subjectName,
+  examGroups,
   categories,
   questions,
   initialProgress,
@@ -123,6 +142,7 @@ export function LearningApp({
   const [now, setNow] = useState(0);
   const [progressMap, setProgressMap] = useState<ProgressMap>(initialProgress);
   const [screen, setScreen] = useState<Screen>("menu");
+  const [pickerOpen, setPickerOpen] = useState(false);
   const [selCats, setSelCats] = useState<Set<string>>(
     () => new Set(categories.map((c) => c.id))
   );
@@ -440,15 +460,77 @@ export function LearningApp({
               </p>
             </div>
             {subjects.length > 1 && (
-              <select
-                value={currentSubjectSlug}
-                onChange={(e) => switchSubject(e.target.value)}
-                className="rounded-lg border border-[#2a2f3f] bg-[#1a1d27] px-2.5 py-1.5 text-xs text-[#8892a4] outline-none"
-              >
-                {subjects.map((s) => (
-                  <option key={s.slug} value={s.slug}>{s.name}</option>
-                ))}
-              </select>
+              <div className="relative shrink-0">
+                <button
+                  onClick={() => setPickerOpen((o) => !o)}
+                  className="flex items-center gap-1.5 rounded-lg border border-[#2a2f3f] bg-[#1a1d27] px-3 py-1.5 text-xs text-[#8892a4] outline-none transition hover:border-[#3a4055]"
+                >
+                  <span className="max-w-[180px] truncate">問題集を選ぶ</span>
+                  <svg width="9" height="9" viewBox="0 0 10 10" fill="none">
+                    <path d="M2 3.5L5 6.5L8 3.5" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round" />
+                  </svg>
+                </button>
+
+                {pickerOpen && (
+                  <>
+                    <button
+                      aria-label="閉じる"
+                      onClick={() => setPickerOpen(false)}
+                      className="fixed inset-0 z-40 cursor-default"
+                    />
+                    <div className="absolute right-0 z-50 mt-2 max-h-[70vh] w-[340px] overflow-auto rounded-xl border border-[#2a2f3f] bg-[#12141c] p-2 shadow-2xl">
+                      {examGroups.map((g) => (
+                        <div key={g.examKey} className="mb-1.5 last:mb-0">
+                          <div className="flex items-baseline justify-between px-2 pb-1 pt-1.5">
+                            <span className="truncate text-[11px] font-semibold text-[#8892a4]">
+                              {g.examName}
+                            </span>
+                            <span className="shrink-0 pl-2 font-mono text-[10px] text-[#555e70]">
+                              {g.attempted}/{g.total}
+                            </span>
+                          </div>
+                          <div className="space-y-0.5">
+                            {g.sets.map((s) => {
+                              const active = s.slug === currentSubjectSlug;
+                              return (
+                                <button
+                                  key={s.slug}
+                                  onClick={() => {
+                                    setPickerOpen(false);
+                                    if (s.slug !== currentSubjectSlug) switchSubject(s.slug);
+                                  }}
+                                  className={`flex w-full items-center gap-2 rounded-lg px-2 py-2 text-left transition ${
+                                    active ? "bg-[#1e2230]" : "hover:bg-[#1a1d27]"
+                                  }`}
+                                >
+                                  <span
+                                    className={`min-w-0 flex-1 truncate text-xs ${
+                                      active ? "font-medium text-white" : "text-[#c0c8d8]"
+                                    }`}
+                                  >
+                                    {s.name}
+                                  </span>
+                                  <span className="shrink-0 text-right leading-tight">
+                                    <span
+                                      className="block font-mono text-[11px] tabular-nums"
+                                      style={{ color: accColor(s.accuracy, s.answers) }}
+                                    >
+                                      {s.answers === 0 ? "—" : `${Math.round(s.accuracy * 100)}%`}
+                                    </span>
+                                    <span className="block text-[9px] text-[#555e70]">
+                                      {s.attempted}/{s.total} · {fmtLastStudied(s.lastAnsweredAt, now)}
+                                    </span>
+                                  </span>
+                                </button>
+                              );
+                            })}
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </>
+                )}
+              </div>
             )}
           </div>
 

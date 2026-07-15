@@ -275,3 +275,116 @@ export function calcSectionMastery(
       attempted: a.attempted,
     }));
 }
+
+// ── 問題集セット一覧: 試験ごとにまとめ、いつ/どれだけ/得点率を出す ──────
+//
+// セット(subject)が増えて一覧がごちゃつくため、試験(exam)単位にグループ化し、
+// 各セットの学習状況(最終学習日・演習量・得点率)を一目で分かるようにする。
+
+// 1問を「どの試験セット(subject)に属するか」で引くための最小参照。
+export interface QuestionSubjectRef {
+  id: string;   // question id（progress 参照キー）
+  slug: string; // subject slug
+}
+
+export interface SubjectStat {
+  slug: string;
+  name: string;
+  examKey: string;
+  total: number;            // セット内の全問題数
+  attempted: number;        // 演習済み問題数（1回以上解答）
+  answers: number;          // 総解答回数（correct + wrong の累計）
+  correct: number;          // 正解回数の累計
+  accuracy: number;         // 0–1 得点率（answers>0 のとき correct/answers）
+  lastAnsweredAt: string | null; // 最終学習日時（ISO）
+}
+
+export interface ExamGroup {
+  examKey: string;
+  examName: string;         // 見出し用の試験名（Set 表記を除いた最短名）
+  sets: SubjectStat[];
+  total: number;            // 試験全体の全問題数
+  attempted: number;        // 試験全体の演習済み問題数
+  lastAnsweredAt: string | null;
+}
+
+// 各セットの学習統計を、全問題の id×slug と進捗から算出する。
+export function buildSubjectStats(
+  subjects: { slug: string; name: string }[],
+  refs: QuestionSubjectRef[],
+  progressMap: ProgressMap
+): SubjectStat[] {
+  interface Agg {
+    total: number;
+    attempted: number;
+    answers: number;
+    correct: number;
+    last: string | null;
+  }
+  const agg = new Map<string, Agg>();
+  for (const s of subjects) {
+    agg.set(s.slug, { total: 0, attempted: 0, answers: 0, correct: 0, last: null });
+  }
+
+  for (const ref of refs) {
+    const a = agg.get(ref.slug);
+    if (!a) continue; // 非アクティブ等、一覧に無いセットは無視
+    a.total++;
+    const p = getProgress(progressMap, ref.id);
+    const answered = p.correct_count + p.wrong_count;
+    if (answered > 0) {
+      a.attempted++;
+      a.answers += answered;
+      a.correct += p.correct_count;
+      if (p.last_answered_at && (!a.last || p.last_answered_at > a.last)) {
+        a.last = p.last_answered_at;
+      }
+    }
+  }
+
+  return subjects.map((s) => {
+    const a = agg.get(s.slug)!;
+    return {
+      slug: s.slug,
+      name: s.name,
+      examKey: examGroupKey(s.slug),
+      total: a.total,
+      attempted: a.attempted,
+      answers: a.answers,
+      correct: a.correct,
+      accuracy: a.answers > 0 ? a.correct / a.answers : 0,
+      lastAnsweredAt: a.last,
+    };
+  });
+}
+
+// セット統計を試験(exam)単位にまとめる。並びは入力(=sort_order)を維持。
+export function groupSubjectsByExam(stats: SubjectStat[]): ExamGroup[] {
+  const order: string[] = [];
+  const byExam = new Map<string, SubjectStat[]>();
+  for (const st of stats) {
+    let sets = byExam.get(st.examKey);
+    if (!sets) {
+      sets = [];
+      byExam.set(st.examKey, sets);
+      order.push(st.examKey);
+    }
+    sets.push(st);
+  }
+
+  return order.map((examKey) => {
+    const sets = byExam.get(examKey)!;
+    // 見出しは Set 表記を除いた最短の試験名を採用（無ければ最初の名前）。
+    const examName = sets
+      .map((s) => examDisplayName(s.name))
+      .filter((n) => n.length > 0)
+      .sort((a, b) => a.length - b.length)[0] ?? sets[0].name;
+    const total = sets.reduce((n, s) => n + s.total, 0);
+    const attempted = sets.reduce((n, s) => n + s.attempted, 0);
+    const lastAnsweredAt = sets.reduce<string | null>(
+      (acc, s) => (s.lastAnsweredAt && (!acc || s.lastAnsweredAt > acc) ? s.lastAnsweredAt : acc),
+      null
+    );
+    return { examKey, examName, sets, total, attempted, lastAnsweredAt };
+  });
+}

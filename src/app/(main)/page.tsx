@@ -1,6 +1,11 @@
 import { createServerSupabaseClient } from "@/lib/supabase/server";
 import type { ProgressMap } from "@/lib/quiz/selection";
 import type { ExplanationData, Progress, QuizQuestion } from "@/lib/quiz/types";
+import {
+  buildSubjectStats,
+  groupSubjectsByExam,
+  type QuestionSubjectRef,
+} from "@/lib/quiz/stats";
 import { LearningApp } from "./learning-app";
 
 export const dynamic = "force-dynamic";
@@ -90,12 +95,32 @@ export default async function HomePage({
     progressMap[p.question_id] = prog;
   }
 
+  // ── 問題集セット一覧（試験ごとの学習状況）──
+  // 全セット分の「問題id × subject」を軽量に読み込み、進捗(全件ロード済み)から
+  // 各セットの演習量・得点率・最終学習日を算出して試験単位にまとめる。
+  const idToSlug = new Map(subjects.map((s) => [s.id, s.slug]));
+  const { data: allQ } = await supabase
+    .from("questions")
+    .select("id, subject_id")
+    .eq("is_active", true);
+  const refs: QuestionSubjectRef[] = (allQ ?? [])
+    .map((q) => ({ id: q.id, slug: idToSlug.get(q.subject_id) ?? "" }))
+    .filter((r): r is QuestionSubjectRef => r.slug !== "");
+  const examGroups = groupSubjectsByExam(
+    buildSubjectStats(
+      subjects.map((s) => ({ slug: s.slug, name: s.name })),
+      refs,
+      progressMap
+    )
+  );
+
   return (
     <LearningApp
       userId={user!.id}
       subjects={subjects.map((s) => ({ slug: s.slug, name: s.name }))}
       currentSubjectSlug={subject.slug}
       subjectName={subject.name}
+      examGroups={examGroups}
       categories={(categories ?? []).map((c) => ({
         id: c.id,
         name: c.name,
