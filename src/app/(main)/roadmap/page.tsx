@@ -7,6 +7,17 @@ export default async function RoadmapPage() {
   const supabase = await createServerSupabaseClient();
   const { data: { user } } = await supabase.auth.getUser();
 
+  // 各ロードマップ項目の完了状態（本人のみ・DB）
+  const doneOverrides: Record<string, boolean> = {};
+  if (user) {
+    const { data: doneRows } = await supabase
+      .from("user_roadmap_items")
+      .select("item_key, done")
+      .eq("user_id", user.id);
+    for (const r of doneRows ?? []) doneOverrides[r.item_key] = r.done;
+  }
+  const userId = user?.id ?? "";
+
   const { data: subject } = await supabase
     .from("subjects")
     .select("id")
@@ -14,7 +25,7 @@ export default async function RoadmapPage() {
     .single();
 
   if (!subject || !user) {
-    return <RoadmapClient acePassProb={null} />;
+    return <RoadmapClient acePassProb={null} userId={userId} doneOverrides={doneOverrides} />;
   }
 
   const [{ data: questions }, { data: progRows }] = await Promise.all([
@@ -30,7 +41,8 @@ export default async function RoadmapPage() {
   ]);
 
   const qCount = questions?.length ?? 0;
-  if (qCount === 0) return <RoadmapClient acePassProb={null} />;
+  if (qCount === 0)
+    return <RoadmapClient acePassProb={null} userId={userId} doneOverrides={doneOverrides} />;
 
   const progMap = new Map(
     (progRows ?? []).map((p) => [p.question_id, p])
@@ -52,5 +64,7 @@ export default async function RoadmapPage() {
   const avgMastery = total / qCount;
   const acePassProb = Math.max(5, Math.min(95, Math.round(avgMastery * 90 + 5)));
 
-  return <RoadmapClient acePassProb={acePassProb} />;
+  return (
+    <RoadmapClient acePassProb={acePassProb} userId={userId} doneOverrides={doneOverrides} />
+  );
 }

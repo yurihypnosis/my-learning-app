@@ -210,6 +210,23 @@ export interface Database {
         };
         Relationships: [];
       };
+      user_roadmap_items: {
+        Row: {
+          user_id: string;
+          item_key: string;
+          done: boolean;
+          updated_at: string;
+        };
+        Insert: {
+          user_id: string;
+          item_key: string;
+          done?: boolean;
+        };
+        Update: {
+          done?: boolean;
+        };
+        Relationships: [];
+      };
     };
     Views: { [_ in never]: never };
     Functions: { [_ in never]: never };
