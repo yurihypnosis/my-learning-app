@@ -22,10 +22,18 @@ export function totalCorrect(p: Progress): number {
   return p.correct_count;
 }
 
-// 間隔反復: 出題対象から外す（休眠）かどうか
-//  - 2週間ルール: 3回連続正解した問題は、最後の解答から2週間出題しない
-//  - 1週間ルール: 正解かつ理解度「完璧」の問題は、最後の解答から1週間出題しない
+// 間隔反復: 出題対象から外す（休眠）かどうか。
+//  - FSRS 復習済みカードは、次の復習日(due)まで休眠（=科学的な間隔）。
+//  - まだ FSRS 状態が無いカードは旧ルール（2週間/1週間）にフォールバック。
+//    (2週間: 3回連続正解 / 1週間: 正解かつ理解度「完璧」)
 export function isResting(p: Progress, now: number): boolean {
+  // FSRS が有効なカードは due 基準で判定する
+  if (p.fsrs_state === "review" && p.fsrs_due) {
+    const due = Date.parse(p.fsrs_due);
+    if (!Number.isNaN(due)) return due > now;
+  }
+
+  // 旧ロジック（FSRS 未適用カードのフォールバック）
   if (!p.last_answered_at) return false;
   const lastTs = Date.parse(p.last_answered_at);
   if (Number.isNaN(lastTs)) return false;
