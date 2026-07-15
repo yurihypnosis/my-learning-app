@@ -227,6 +227,21 @@ export interface Database {
         };
         Relationships: [];
       };
+      user_roadmap: {
+        Row: {
+          user_id: string;
+          doc: Json;
+          updated_at: string;
+        };
+        Insert: {
+          user_id: string;
+          doc?: Json;
+        };
+        Update: {
+          doc?: Json;
+        };
+        Relationships: [];
+      };
     };
     Views: { [_ in never]: never };
     Functions: { [_ in never]: never };
