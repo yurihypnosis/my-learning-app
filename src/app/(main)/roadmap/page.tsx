@@ -35,6 +35,22 @@ export default async function RoadmapPage() {
     }
   }
 
+  // 試験日サマリ用: 各試験区分の試験日（user_exam_goals）
+  let examGoals: { examKey: string; examDate: string; targetName: string }[] = [];
+  if (user) {
+    const { data: goalRows } = await supabase
+      .from("user_exam_goals")
+      .select("exam_key, exam_date, target_name")
+      .eq("user_id", user.id);
+    examGoals = (goalRows ?? [])
+      .filter((g) => !!g.exam_date)
+      .map((g) => ({
+        examKey: g.exam_key,
+        examDate: g.exam_date as string,
+        targetName: g.target_name ?? g.exam_key,
+      }));
+  }
+
   // GCP ACE の合格確率（ACE マイルストンのバー用）
   let acePassProb: number | null = null;
   const { data: subject } = await supabase
@@ -77,6 +93,11 @@ export default async function RoadmapPage() {
   }
 
   return (
-    <RoadmapClient acePassProb={acePassProb} userId={userId} initialDoc={initialDoc} />
+    <RoadmapClient
+      acePassProb={acePassProb}
+      userId={userId}
+      initialDoc={initialDoc}
+      examGoals={examGoals}
+    />
   );
 }

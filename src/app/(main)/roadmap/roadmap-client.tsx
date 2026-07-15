@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { createClient } from "@/lib/supabase/client";
 import type { Json } from "@/types/database";
@@ -12,11 +12,37 @@ import {
   type RoadmapDoc,
 } from "@/lib/roadmap";
 
+interface ExamGoal {
+  examKey: string;
+  examDate: string; // YYYY-MM-DD
+  targetName: string;
+}
+
 interface Props {
   acePassProb: number | null;
   userId: string;
   initialDoc: RoadmapDoc;
+  examGoals: ExamGoal[];
 }
+
+// 試験日までの残り日数（ローカル日付基準）。now が未確定なら null。
+function daysUntil(dateStr: string, nowMs: number | null): number | null {
+  if (nowMs === null) return null;
+  const target = new Date(dateStr + "T00:00:00");
+  if (Number.isNaN(target.getTime())) return null;
+  const today = new Date(nowMs);
+  today.setHours(0, 0, 0, 0);
+  return Math.round((target.getTime() - today.getTime()) / 86_400_000);
+}
+
+function fmtExamDate(dateStr: string): string {
+  const d = new Date(dateStr + "T00:00:00");
+  if (Number.isNaN(d.getTime())) return dateStr;
+  return `${d.getFullYear()}/${d.getMonth() + 1}/${d.getDate()}`;
+}
+
+const daysColor = (days: number | null): string =>
+  days === null ? "#8892a4" : days <= 14 ? "#ef4444" : days <= 45 ? "#f59e0b" : "#3b82f6";
 
 const STATUS_META: Record<RStatus, { label: string; color: string }> = {
   done: { label: "完了", color: "#22c55e" },
@@ -26,7 +52,7 @@ const STATUS_META: Record<RStatus, { label: string; color: string }> = {
 
 const passColor = (p: number) => (p >= 70 ? "#22c55e" : p >= 50 ? "#f59e0b" : "#ef4444");
 
-export function RoadmapClient({ acePassProb, userId, initialDoc }: Props) {
+export function RoadmapClient({ acePassProb, userId, initialDoc, examGoals }: Props) {
   const wrap = "flex flex-col items-center px-4 pb-28 pt-8";
   const container = "w-full max-w-[520px]";
 
@@ -34,6 +60,15 @@ export function RoadmapClient({ acePassProb, userId, initialDoc }: Props) {
   const [doc, setDoc] = useState<RoadmapDoc>(initialDoc);
   const [screen, setScreen] = useState<"view" | "edit">("view");
   const saveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  // 残り日数はローカル日付で計算する（SSR と食い違わないよう mount 後に確定）。
+  const [nowMs, setNowMs] = useState<number | null>(null);
+  useEffect(() => setNowMs(Date.now()), []);
+
+  const sortedGoals = useMemo(
+    () => [...examGoals].sort((a, b) => a.examDate.localeCompare(b.examDate)),
+    [examGoals]
+  );
 
   // doc 全体を（デバウンスして）DB に保存する。編集・完了トグルすべてで使う。
   const commit = (next: RoadmapDoc) => {
@@ -285,6 +320,43 @@ export function RoadmapClient({ acePassProb, userId, initialDoc }: Props) {
             </Link>
           </div>
         </div>
+
+        {/* 試験日サマリ（user_exam_goals） */}
+        {sortedGoals.length > 0 && (
+          <div className="mb-8">
+            <p className="mb-3 text-[10px] font-semibold uppercase tracking-widest text-[#555e70]">
+              試験日
+            </p>
+            <div className="space-y-2">
+              {sortedGoals.map((g) => {
+                const days = daysUntil(g.examDate, nowMs);
+                const col = daysColor(days);
+                return (
+                  <div
+                    key={g.examKey}
+                    className="flex items-center justify-between gap-3 rounded-xl border border-[#2a2f3f] bg-[#141720] px-3.5 py-3"
+                  >
+                    <div className="min-w-0">
+                      <p className="truncate text-xs font-medium text-[#c0c8d8]">{g.targetName}</p>
+                      <p className="text-[11px] text-[#555e70]">{fmtExamDate(g.examDate)}</p>
+                    </div>
+                    <div className="shrink-0 text-right">
+                      <p className="text-sm font-bold tabular-nums" style={{ color: col }}>
+                        {days === null
+                          ? "—"
+                          : days > 0
+                            ? `残り${days}日`
+                            : days === 0
+                              ? "本日"
+                              : "終了"}
+                      </p>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        )}
 
         {doc.phases.length === 0 && (
           <p className="mb-6 rounded-xl border border-dashed border-[#2a2f3f] py-8 text-center text-xs text-[#555e70]">
