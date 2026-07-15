@@ -1173,6 +1173,21 @@ export function LearningApp({
       })
       .slice(0, 8);
 
+    // 確信度キャリブレーション（直近の解答: 自信度 × 正誤）。
+    // 「自信あり」なのに誤答 = 思い込みの危険ゾーン（最優先で復習すべき）。
+    const cal = { sureCorrect: 0, sureWrong: 0, unsureCorrect: 0, unsureWrong: 0 };
+    const dangerQs: QuizQuestion[] = [];
+    for (const q of questions) {
+      const p = getProgress(progressMap, q.id);
+      if (p.last_confidence === null || p.last_is_correct === null) continue;
+      const sure = p.last_confidence === 1;
+      if (p.last_is_correct) sure ? cal.sureCorrect++ : cal.unsureCorrect++;
+      else if (sure) {
+        cal.sureWrong++;
+        dangerQs.push(q);
+      } else cal.unsureWrong++;
+    }
+
     return (
       <div className={wrap}>
         <div className={container}>
@@ -1355,33 +1370,50 @@ export function LearningApp({
             })}
           </div>
 
-          {/* Confidence distribution */}
+          {/* 確信度キャリブレーション */}
           <p className="mb-3 text-[10px] font-semibold uppercase tracking-widest text-[#555e70]">
-            確信度の分布
+            確信度キャリブレーション
           </p>
-          <div className="mb-6 flex gap-2">
-            {CONFIDENCE_LABELS.map((label, i) => {
-              const level = i + 1;
-              const cnt = questions.filter(
-                (qq) => getProgress(progressMap, qq.id).last_confidence === level
-              ).length;
-              return (
-                <div
-                  key={i}
-                  className="flex-1 rounded-xl border border-[#2a2f3f] bg-[#141720] py-3 text-center"
-                >
-                  <p className="text-xl font-bold tabular-nums" style={{ color: CONFIDENCE_COLORS[i] }}>
-                    {cnt}
-                  </p>
-                  <p className="text-[9px] text-[#555e70]">{label}</p>
-                </div>
-              );
-            })}
-            <div className="flex-1 rounded-xl border border-[#2a2f3f] bg-[#141720] py-3 text-center">
-              <p className="text-xl font-bold tabular-nums text-[#3a4050]">
-                {questions.filter((qq) => getProgress(progressMap, qq.id).last_confidence === null).length}
-              </p>
-              <p className="text-[9px] text-[#555e70]">未回答</p>
+          {cal.sureWrong > 0 && (
+            <div className="mb-3 flex items-center justify-between gap-3 rounded-xl border border-[#3f1515] bg-[#160606] px-4 py-3">
+              <div className="min-w-0">
+                <p className="text-xs font-semibold text-[#ef4444]">
+                  「自信あり」なのに誤答 {cal.sureWrong}問
+                </p>
+                <p className="text-[11px] text-[#8892a4]">思い込みの危険ゾーン。最優先で復習を。</p>
+              </div>
+              <button
+                onClick={() => startReview(dangerQs)}
+                className="shrink-0 rounded-lg border border-[#3f1515] px-3 py-1.5 text-[11px] font-medium text-[#ef4444] transition hover:bg-[#1a0808]"
+              >
+                復習 →
+              </button>
+            </div>
+          )}
+          <div className="mb-6 grid grid-cols-[56px_1fr_1fr] gap-1.5">
+            <div />
+            <div className="text-center text-[10px] font-mono text-[#555e70]">正解</div>
+            <div className="text-center text-[10px] font-mono text-[#555e70]">誤答</div>
+
+            <div className="flex items-center text-[10px] font-mono text-[#555e70]">自信あり</div>
+            <div className="rounded-lg border border-[#2a2f3f] bg-[#141720] py-2.5 text-center">
+              <span className="text-lg font-bold tabular-nums text-[#22c55e]">{cal.sureCorrect}</span>
+            </div>
+            <div
+              className="rounded-lg border py-2.5 text-center"
+              style={{ borderColor: cal.sureWrong > 0 ? "#ef4444" : "#2a2f3f", background: cal.sureWrong > 0 ? "#160606" : "#141720" }}
+            >
+              <span className="text-lg font-bold tabular-nums" style={{ color: cal.sureWrong > 0 ? "#ef4444" : "#3a4050" }}>
+                {cal.sureWrong}
+              </span>
+            </div>
+
+            <div className="flex items-center text-[10px] font-mono text-[#555e70]">自信なし</div>
+            <div className="rounded-lg border border-[#2a2f3f] bg-[#141720] py-2.5 text-center">
+              <span className="text-lg font-bold tabular-nums text-[#8892a4]">{cal.unsureCorrect}</span>
+            </div>
+            <div className="rounded-lg border border-[#2a2f3f] bg-[#141720] py-2.5 text-center">
+              <span className="text-lg font-bold tabular-nums text-[#8892a4]">{cal.unsureWrong}</span>
             </div>
           </div>
         </div>
