@@ -197,12 +197,19 @@ export function calcCategoryMastery(
 // 苦手傾向がセット単位に分断される。ここでは「試験」を単位に、共通の
 // セクション(=カテゴリ名)で習熟度を合算し、試験全体の苦手傾向を出す。
 
-// slug から Set 接尾辞 "-<英字1文字>" を除いた試験キーを返す。
+// 命名規約の例外（同じ試験だが slug 接頭辞が異なるもの）を明示対応付ける。
+// 規約（"-<英字>" 除去）では拾えないケースをここで吸収する。
+const EXAM_ALIAS: Record<string, string> = {
+  // ISTQB CTAL-TA は「CTAL-TA テストアナリスト」と同一試験
+  "istqb-ctal-ta": "ctal-ta",
+};
+
+// slug から試験キーを返す。まず別名表、無ければ Set 接尾辞 "-<英字1文字>" を除去。
+//   istqb-ctal-ta → ctal-ta（別名）
 //   gcp-pcde-c → gcp-pcde,  ctal-ta-f → ctal-ta
 //   gcp-ace → gcp-ace(不変), dca → dca, gh-200 → gh-200(不変)
-// 単一Setの試験(接尾辞なし)はそのまま自身が試験キーになる。
 export function examGroupKey(slug: string): string {
-  return slug.replace(/-[a-z]$/, "");
+  return EXAM_ALIAS[slug] ?? slug.replace(/-[a-z]$/, "");
 }
 
 // subject 名から Set 表記「(Set X)」等を除いた試験名を返す(表示用)。
@@ -402,4 +409,121 @@ export function groupSubjectsByExam(stats: SubjectStat[]): ExamGroup[] {
       lastAnsweredAt,
     };
   });
+}
+
+// ── 体系的な苦手分析: 試験全体を分野(セクション)単位に、さらに各分野を
+//    Set 別に分解して「全体観 → 分野 → セット」で見渡せるようにする ──────
+
+// 1問を「どのセット・どの分野」に属するかで引くための参照。
+export interface SectionQuestionRef {
+  id: string;      // question id（progress 参照キー）
+  slug: string;    // subject(セット) slug
+  section: string; // カテゴリ名（=分野・Set 間で共通化済み前提）
+  color: string;
+  sort: number;    // カテゴリ sort_order（表示順の安定化）
+}
+
+export interface SetBreakdown {
+  slug: string;
+  total: number;
+  attempted: number;
+  mastery: number; // 0–1
+}
+
+export interface SectionAnalysis {
+  name: string;
+  color: string;
+  sort: number;
+  total: number;       // 分野内の全問題数（全Set合算）
+  attempted: number;   // 演習済み問題数（全Set合算）
+  mastery: number;     // 0–1 分野の習熟度（試行済みのみ平均）
+  sets: SetBreakdown[]; // この分野を含むセットごとの内訳（sort 済み: slug 昇順）
+}
+
+// 分野ごとに、全Set合算の習熟度＋Set別内訳を算出する。
+export function analyzeSections(
+  refs: SectionQuestionRef[],
+  progressMap: ProgressMap
+): SectionAnalysis[] {
+  interface SetAgg { total: number; attempted: number; sum: number }
+  interface SecAgg {
+    color: string;
+    sort: number;
+    total: number;
+    attempted: number;
+    sum: number;
+    sets: Map<string, SetAgg>;
+  }
+  const secs = new Map<string, SecAgg>();
+
+  for (const r of refs) {
+    let s = secs.get(r.section);
+    if (!s) {
+      s = { color: r.color, sort: r.sort, total: 0, attempted: 0, sum: 0, sets: new Map() };
+      secs.set(r.section, s);
+    }
+    s.sort = Math.min(s.sort, r.sort);
+    s.total++;
+    let se = s.sets.get(r.slug);
+    if (!se) {
+      se = { total: 0, attempted: 0, sum: 0 };
+      s.sets.set(r.slug, se);
+    }
+    se.total++;
+    const p = getProgress(progressMap, r.id);
+    if (p.correct_count + p.wrong_count > 0) {
+      const m = masteryFromProgress(p);
+      s.attempted++;
+      s.sum += m;
+      se.attempted++;
+      se.sum += m;
+    }
+  }
+
+  return [...secs.entries()]
+    .sort((a, b) => a[1].sort - b[1].sort || a[0].localeCompare(b[0]))
+    .map(([name, s]) => ({
+      name,
+      color: s.color,
+      sort: s.sort,
+      total: s.total,
+      attempted: s.attempted,
+      mastery: s.attempted > 0 ? s.sum / s.attempted : 0,
+      sets: [...s.sets.entries()]
+        .sort((a, b) => a[0].localeCompare(b[0]))
+        .map(([slug, se]) => ({
+          slug,
+          total: se.total,
+          attempted: se.attempted,
+          mastery: se.attempted > 0 ? se.sum / se.attempted : 0,
+        })),
+    }));
+}
+
+export interface SectionOverview {
+  total: number;
+  attempted: number;
+  coverage: number;    // 0–1
+  mastery: number;     // 0–1 演習済み加重平均
+  weakSections: number; // 演習済みで mastery < 0.5 の分野数
+  sectionCount: number;
+}
+
+// 分野分析から試験全体のサマリ（全体観の見出し用）を作る。
+export function sectionOverview(sections: SectionAnalysis[]): SectionOverview {
+  let total = 0, attempted = 0, sum = 0, weak = 0;
+  for (const s of sections) {
+    total += s.total;
+    attempted += s.attempted;
+    sum += s.mastery * s.attempted;
+    if (s.attempted > 0 && s.mastery < 0.5) weak++;
+  }
+  return {
+    total,
+    attempted,
+    coverage: total > 0 ? attempted / total : 0,
+    mastery: attempted > 0 ? sum / attempted : 0,
+    weakSections: weak,
+    sectionCount: sections.length,
+  };
 }

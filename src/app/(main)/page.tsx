@@ -3,8 +3,10 @@ import type { ProgressMap } from "@/lib/quiz/selection";
 import type { ExplanationData, Progress, QuizQuestion } from "@/lib/quiz/types";
 import {
   buildSubjectStats,
+  examGroupKey,
   groupSubjectsByExam,
   type QuestionSubjectRef,
+  type SectionQuestionRef,
 } from "@/lib/quiz/stats";
 import { LearningApp } from "./learning-app";
 
@@ -101,7 +103,7 @@ export default async function HomePage({
   const idToSlug = new Map(subjects.map((s) => [s.id, s.slug]));
   const { data: allQ } = await supabase
     .from("questions")
-    .select("id, subject_id")
+    .select("id, subject_id, category_id")
     .eq("is_active", true);
   const refs: QuestionSubjectRef[] = (allQ ?? [])
     .map((q) => ({ id: q.id, slug: idToSlug.get(q.subject_id) ?? "" }))
@@ -114,6 +116,30 @@ export default async function HomePage({
     )
   );
 
+  // ── 体系的な苦手分析（試験全体）用: 現在の試験に属する全Setの
+  //    「問題 × 分野(カテゴリ)」カタログを組み立てる ──
+  const examKey = examGroupKey(subject.slug);
+  const examSetIds = new Set(
+    subjects.filter((s) => examGroupKey(s.slug) === examKey).map((s) => s.id)
+  );
+  const { data: examCats } = await supabase
+    .from("categories")
+    .select("id, name, color, sort_order")
+    .in("subject_id", [...examSetIds]);
+  const examCatMap = new Map((examCats ?? []).map((c) => [c.id, c]));
+  const examSections: SectionQuestionRef[] = (allQ ?? [])
+    .filter((q) => examSetIds.has(q.subject_id))
+    .map((q) => {
+      const c = examCatMap.get(q.category_id);
+      return {
+        id: q.id,
+        slug: idToSlug.get(q.subject_id) ?? "",
+        section: (c?.name as string) ?? "未分類",
+        color: (c?.color as string) ?? "#64748b",
+        sort: (c?.sort_order as number) ?? 0,
+      };
+    });
+
   return (
     <LearningApp
       userId={user!.id}
@@ -121,6 +147,7 @@ export default async function HomePage({
       currentSubjectSlug={subject.slug}
       subjectName={subject.name}
       examGroups={examGroups}
+      examSections={examSections}
       categories={(categories ?? []).map((c) => ({
         id: c.id,
         name: c.name,

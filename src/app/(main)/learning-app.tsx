@@ -23,11 +23,13 @@ import { buildCSV, downloadCSV, type ExportMode } from "@/lib/quiz/csv";
 import {
   type UserGoal,
   type ExamGroup,
+  type SectionQuestionRef,
   loadGoal,
   saveGoal,
   calcMasteryStats,
   calcDailyRec,
-  calcCategoryMastery,
+  analyzeSections,
+  sectionOverview,
 } from "@/lib/quiz/stats";
 
 type Screen = "menu" | "quiz" | "done" | "analysis" | "export" | "goal";
@@ -107,6 +109,7 @@ interface Props {
   currentSubjectSlug: string;
   subjectName: string;
   examGroups: ExamGroup[];
+  examSections: SectionQuestionRef[];
   categories: { id: string; name: string; color: string }[];
   questions: QuizQuestion[];
   initialProgress: ProgressMap;
@@ -165,6 +168,7 @@ export function LearningApp({
   currentSubjectSlug,
   subjectName,
   examGroups,
+  examSections,
   categories,
   questions,
   initialProgress,
@@ -174,6 +178,7 @@ export function LearningApp({
   const [progressMap, setProgressMap] = useState<ProgressMap>(initialProgress);
   const [screen, setScreen] = useState<Screen>("menu");
   const [pickerOpen, setPickerOpen] = useState(false);
+  const [expandedSection, setExpandedSection] = useState<string | null>(null);
   // 問題集ピッカーは試験単位に折りたたみ、1試験だけ展開する（学習中の試験を初期展開）。
   const currentExamKey = useMemo(
     () => examGroups.find((g) => g.sets.some((s) => s.slug === currentSubjectSlug))?.examKey ?? null,
@@ -217,6 +222,18 @@ export function LearningApp({
     setGoal(g);
     if (g) setGoalDraft({ examDate: g.examDate, targetName: g.targetName });
   }, [currentSubjectSlug]);
+
+  // ヘッダの Home ボタンからの合図で、内部画面(クイズ/分析など)を
+  // トップ(メニュー)へ戻す。別ルートからの遷移は新規マウントで menu になる。
+  useEffect(() => {
+    const goMenu = () => {
+      setScreen("menu");
+      setPickerOpen(false);
+      window.scrollTo({ top: 0 });
+    };
+    window.addEventListener("app:home", goMenu);
+    return () => window.removeEventListener("app:home", goMenu);
+  }, []);
 
   useEffect(() => {
     if (!answered || !deck[idx]) return;
@@ -964,23 +981,30 @@ export function LearningApp({
 
   // ── ANALYSIS ──────────────────────────────────────────────────────────
   if (screen === "analysis") {
-    const catStats = categories
-      .map((c) => {
-        const qs = questions.filter((q) => q.category_id === c.id);
-        let w = 0;
-        let cc = 0;
-        let practiced = false;
-        qs.forEach((q) => {
-          const p = getProgress(progressMap, q.id);
-          w += totalWrong(q, p);
-          cc += totalCorrect(p);
-          if (p.correct_count + p.wrong_count > 0) practiced = true;
-        });
-        const acc = practiced ? Math.round((cc / (w + cc)) * 100) : null;
-        return { ...c, w, cc, acc, n: qs.length };
-      })
-      .sort((a, b) => (a.acc ?? 101) - (b.acc ?? 101));
+    // 試験全体（全Set合算）の分野別分析
+    const sections = analyzeSections(examSections, progressMap);
+    const overview = sectionOverview(sections);
+    const examName =
+      examGroups.find((g) => g.examKey === currentExamKey)?.examName ?? subjectName;
+    const setNameOf = new Map(examGroups.flatMap((g) => g.sets).map((s) => [s.slug, s.name]));
+    const shortSet = (slug: string): string => {
+      const n = setNameOf.get(slug) ?? slug;
+      const s = n.replace(examName, "").replace(/[（()）]/g, "").trim();
+      return s || n;
+    };
+    // 弱点順に並べる: 演習済みは習熟度が低い順、未着手は末尾
+    const ranked = [...sections].sort((a, b) => {
+      const aa = a.attempted > 0;
+      const bb = b.attempted > 0;
+      if (aa !== bb) return aa ? -1 : 1;
+      if (aa) return a.mastery - b.mastery;
+      return a.sort - b.sort;
+    });
+    const secColor = (pct: number, attempted: number): string =>
+      attempted === 0 ? "#555e70" : pct >= 70 ? "#22c55e" : pct >= 40 ? "#f59e0b" : "#ef4444";
+    const overPct = Math.round(overview.mastery * 100);
 
+    // 「このセット」の弱点問題（復習アクション用・現在のSetのみ）
     const worst = [...questions]
       .filter((q) => {
         const p = getProgress(progressMap, q.id);
@@ -992,11 +1016,6 @@ export function LearningApp({
         return totalWrong(b, pb) - totalCorrect(pb) - (totalWrong(a, pa) - totalCorrect(pa));
       })
       .slice(0, 8);
-
-    const masteryStats = calcMasteryStats(questions, progressMap);
-    const catMastery = calcCategoryMastery(categories, questions, progressMap);
-    const probColor =
-      masteryStats.passProb >= 70 ? "#22c55e" : masteryStats.passProb >= 50 ? "#f59e0b" : "#ef4444";
 
     return (
       <div className={wrap}>
@@ -1011,80 +1030,118 @@ export function LearningApp({
             </button>
           </div>
 
-          {/* Pass probability */}
+          {/* 試験全体サマリ（全Set合算） */}
           <div className="mb-6 rounded-xl border border-[#2a2f3f] bg-[#1a1d27] p-4">
-            <div className="mb-3 flex items-end justify-between">
-              <p className="text-xs text-[#8892a4]">予測合格確率</p>
-              <p className="text-3xl font-bold tabular-nums" style={{ color: probColor }}>
-                {masteryStats.passProb}%
+            <div className="mb-3 flex items-end justify-between gap-3">
+              <div className="min-w-0">
+                <p className="text-[10px] font-semibold uppercase tracking-widest text-[#555e70]">
+                  試験全体
+                </p>
+                <p className="truncate text-sm font-medium text-white">{examName}</p>
+              </div>
+              <p
+                className="shrink-0 text-3xl font-bold tabular-nums"
+                style={{ color: secColor(overPct, overview.attempted) }}
+              >
+                {overview.attempted === 0 ? "—" : `${overPct}%`}
               </p>
             </div>
-            <div className="mb-3 h-px overflow-hidden rounded-full bg-[#2a2f3f]">
+            <div className="mb-3 h-1.5 overflow-hidden rounded-full bg-[#2a2f3f]">
               <div
                 className="h-full rounded-full transition-all"
-                style={{ width: `${masteryStats.passProb}%`, background: probColor }}
+                style={{
+                  width: `${overview.attempted === 0 ? 0 : overPct}%`,
+                  background: secColor(overPct, overview.attempted),
+                }}
               />
             </div>
             <div className="flex flex-wrap gap-4 text-xs text-[#555e70]">
-              <span>カバー {Math.round(masteryStats.coverage * 100)}%</span>
-              <span>習得 {masteryStats.masteredCount}</span>
-              <span>弱点 {masteryStats.weakCount}</span>
-              {masteryStats.untestedCount > 0 && (
-                <span>未着手 {masteryStats.untestedCount}</span>
+              <span>
+                カバー {Math.round(overview.coverage * 100)}%（{overview.attempted}/{overview.total}）
+              </span>
+              <span>分野 {overview.sectionCount}</span>
+              {overview.weakSections > 0 && (
+                <span className="text-[#ef4444]">弱点分野 {overview.weakSections}</span>
               )}
             </div>
           </div>
 
-          {/* Skill tree */}
-          <p className="mb-3 text-[10px] font-semibold uppercase tracking-widest text-[#555e70]">
-            分野別スキルツリー
-          </p>
+          {/* 分野別 苦手マップ（弱点順・全Set合算・タップでSet別内訳） */}
+          <div className="mb-3 flex items-baseline justify-between">
+            <p className="text-[10px] font-semibold uppercase tracking-widest text-[#555e70]">
+              分野別 苦手マップ
+            </p>
+            <span className="text-[10px] text-[#3a4050]">弱点が上・タップでSet別内訳</span>
+          </div>
           <div className="mb-6 space-y-2">
-            {catMastery.map((cm) => {
-              const pct = Math.round(cm.mastery * 100);
-              const stat = catStats.find((s) => s.id === cm.id);
+            {ranked.length === 0 && (
+              <p className="text-xs text-[#555e70]">まだデータがありません</p>
+            )}
+            {ranked.map((sec) => {
+              const pct = Math.round(sec.mastery * 100);
+              const open = expandedSection === sec.name;
+              const color = secColor(pct, sec.attempted);
               return (
-                <div key={cm.id} className="rounded-xl border border-[#2a2f3f] bg-[#141720] p-3.5">
-                  <div className="mb-2 flex items-center justify-between gap-2">
-                    <div className="flex min-w-0 items-center gap-2">
-                      <span
-                        className="h-2 w-2 shrink-0 rounded-full"
-                        style={{ background: cm.color }}
+                <div key={sec.name} className="rounded-xl border border-[#2a2f3f] bg-[#141720] p-3.5">
+                  <button
+                    onClick={() => setExpandedSection(open ? null : sec.name)}
+                    className="w-full text-left"
+                  >
+                    <div className="mb-2 flex items-center justify-between gap-2">
+                      <div className="flex min-w-0 items-center gap-2">
+                        <svg
+                          width="8"
+                          height="8"
+                          viewBox="0 0 10 10"
+                          fill="none"
+                          className="shrink-0 transition-transform"
+                          style={{ transform: open ? "rotate(90deg)" : "none", color: "#555e70" }}
+                        >
+                          <path d="M3.5 2L6.5 5L3.5 8" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
+                        </svg>
+                        <span className="h-2 w-2 shrink-0 rounded-full" style={{ background: sec.color }} />
+                        <span className="truncate text-xs font-medium text-[#c0c8d8]">{sec.name}</span>
+                      </div>
+                      <div className="flex shrink-0 items-center gap-3 text-[10px] text-[#555e70]">
+                        <span>{sec.attempted}/{sec.total}</span>
+                        <span className="w-9 text-right font-semibold" style={{ color }}>
+                          {sec.attempted === 0 ? "未着" : `${pct}%`}
+                        </span>
+                      </div>
+                    </div>
+                    <div className="h-1.5 overflow-hidden rounded-full bg-[#2a2f3f]">
+                      <div
+                        className="h-full rounded-full transition-all"
+                        style={{ width: `${sec.attempted === 0 ? 0 : pct}%`, background: color }}
                       />
-                      <span className="truncate text-xs font-medium text-[#c0c8d8]">{cm.name}</span>
                     </div>
-                    <div className="flex shrink-0 items-center gap-3 text-[10px] text-[#555e70]">
-                      {stat?.acc !== null && stat?.acc !== undefined && (
-                        <span>正答 {stat.acc}%</span>
-                      )}
-                      <span>{cm.masteredCount}/{cm.total}</span>
-                      <span
-                        className="w-9 text-right font-semibold"
-                        style={{
-                          color:
-                            cm.attempted === 0
-                              ? "#555e70"
-                              : pct >= 70
-                                ? "#22c55e"
-                                : pct >= 40
-                                  ? "#f59e0b"
-                                  : "#ef4444",
-                        }}
-                      >
-                        {cm.attempted === 0 ? "未着" : `${pct}%`}
-                      </span>
+                  </button>
+
+                  {open && (
+                    <div className="mt-3 space-y-1.5 border-t border-[#2a2f3f] pt-3">
+                      {sec.sets.map((st) => {
+                        const sp = Math.round(st.mastery * 100);
+                        const sc = secColor(sp, st.attempted);
+                        return (
+                          <div key={st.slug} className="flex items-center gap-2">
+                            <span className="w-24 shrink-0 truncate text-[10px] text-[#8892a4]">
+                              {shortSet(st.slug)}
+                            </span>
+                            <div className="h-1 flex-1 overflow-hidden rounded-full bg-[#2a2f3f]">
+                              <div
+                                className="h-full rounded-full"
+                                style={{ width: `${st.attempted === 0 ? 0 : sp}%`, background: sc }}
+                              />
+                            </div>
+                            <span className="w-16 shrink-0 text-right text-[10px] tabular-nums" style={{ color: sc }}>
+                              {st.attempted === 0 ? "未着" : `${sp}%`}
+                              <span className="ml-1 text-[#3a4050]">{st.attempted}/{st.total}</span>
+                            </span>
+                          </div>
+                        );
+                      })}
                     </div>
-                  </div>
-                  <div className="h-px overflow-hidden rounded-full bg-[#2a2f3f]">
-                    <div
-                      className="h-full rounded-full transition-all"
-                      style={{
-                        width: `${pct}%`,
-                        background: cm.color,
-                        opacity: pct === 0 ? 0.15 : 0.7,
-                      }}
-                    />
-                  </div>
+                  )}
                 </div>
               );
             })}
@@ -1093,7 +1150,7 @@ export function LearningApp({
           {/* Worst questions */}
           <div className="mb-3 flex items-center justify-between">
             <p className="text-[10px] font-semibold uppercase tracking-widest text-[#555e70]">
-              最重点 8 問
+              このセットの弱点問題
             </p>
             {worst.length > 0 && (
               <button
