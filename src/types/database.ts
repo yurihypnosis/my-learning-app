@@ -153,6 +153,13 @@ export interface Database {
           understanding_level: number;
           memo: string;
           last_confidence: number | null;
+          fsrs_stability: number | null;
+          fsrs_difficulty: number | null;
+          fsrs_due: string | null;
+          fsrs_last_review: string | null;
+          fsrs_reps: number;
+          fsrs_lapses: number;
+          fsrs_state: string;
           created_at: string;
           updated_at: string;
         };
@@ -168,6 +175,13 @@ export interface Database {
           understanding_level?: number;
           memo?: string;
           last_confidence?: number | null;
+          fsrs_stability?: number | null;
+          fsrs_difficulty?: number | null;
+          fsrs_due?: string | null;
+          fsrs_last_review?: string | null;
+          fsrs_reps?: number;
+          fsrs_lapses?: number;
+          fsrs_state?: string;
         };
         Update: {
           correct_count?: number;
@@ -179,6 +193,13 @@ export interface Database {
           understanding_level?: number;
           memo?: string;
           last_confidence?: number | null;
+          fsrs_stability?: number | null;
+          fsrs_difficulty?: number | null;
+          fsrs_due?: string | null;
+          fsrs_last_review?: string | null;
+          fsrs_reps?: number;
+          fsrs_lapses?: number;
+          fsrs_state?: string;
         };
         Relationships: [
           {

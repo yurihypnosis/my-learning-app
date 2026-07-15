@@ -57,6 +57,13 @@ export default async function HomePage({
       understanding_level: p.understanding_level,
       memo: p.memo,
       last_confidence: (p.last_confidence as number | null) ?? null,
+      fsrs_stability: (p.fsrs_stability as number | null) ?? null,
+      fsrs_difficulty: (p.fsrs_difficulty as number | null) ?? null,
+      fsrs_due: (p.fsrs_due as string | null) ?? null,
+      fsrs_last_review: (p.fsrs_last_review as string | null) ?? null,
+      fsrs_reps: (p.fsrs_reps as number | undefined) ?? 0,
+      fsrs_lapses: (p.fsrs_lapses as number | undefined) ?? 0,
+      fsrs_state: (p.fsrs_state as string | undefined) ?? "new",
     };
     progressMap[p.question_id] = prog;
   }

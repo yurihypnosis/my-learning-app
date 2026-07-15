@@ -49,6 +49,14 @@ export interface Progress {
   understanding_level: number;
   memo: string;
   last_confidence: number | null; // 1=確信あり, 2=迷った, 3=勘
+  // FSRS 記憶エンジンの状態（列が無い環境/未学習では未設定）
+  fsrs_stability?: number | null;
+  fsrs_difficulty?: number | null;
+  fsrs_due?: string | null;
+  fsrs_last_review?: string | null;
+  fsrs_reps?: number;
+  fsrs_lapses?: number;
+  fsrs_state?: string; // 'new' | 'review'
 }
 
 export function emptyProgress(questionId: string): Progress {
@@ -63,5 +71,12 @@ export function emptyProgress(questionId: string): Progress {
     understanding_level: 0,
     memo: "",
     last_confidence: null,
+    fsrs_stability: null,
+    fsrs_difficulty: null,
+    fsrs_due: null,
+    fsrs_last_review: null,
+    fsrs_reps: 0,
+    fsrs_lapses: 0,
+    fsrs_state: "new",
   };
 }

@@ -29,6 +29,39 @@ import {
   analyzeSections,
   sectionOverview,
 } from "@/lib/quiz/stats";
+import { type Card, gradeFromAnswer, review } from "@/lib/quiz/fsrs";
+
+// 進捗行 → FSRS カード。列が無い/未学習なら new。
+function cardFromProgress(p: Progress): Card {
+  return {
+    stability: p.fsrs_stability ?? 0,
+    difficulty: p.fsrs_difficulty ?? 0,
+    reps: p.fsrs_reps ?? 0,
+    lapses: p.fsrs_lapses ?? 0,
+    lastReview: p.fsrs_last_review ?? null,
+    due: p.fsrs_due ?? null,
+    state: p.fsrs_state === "review" ? "review" : "new",
+  };
+}
+
+// 1 解答分の FSRS 更新を Progress の部分更新として返す。
+function fsrsFields(
+  cur: Progress,
+  isCorrect: boolean,
+  conf: number | null,
+  nowMs: number
+): Partial<Progress> {
+  const card = review(cardFromProgress(cur), gradeFromAnswer(isCorrect, conf), nowMs);
+  return {
+    fsrs_stability: card.stability,
+    fsrs_difficulty: card.difficulty,
+    fsrs_due: card.due,
+    fsrs_last_review: card.lastReview,
+    fsrs_reps: card.reps,
+    fsrs_lapses: card.lapses,
+    fsrs_state: card.state,
+  };
+}
 
 type Screen = "menu" | "quiz" | "done" | "analysis" | "export" | "goal";
 type SessionResult = { correct: boolean; category: string; color: string };
@@ -279,6 +312,8 @@ export function LearningApp({
     const cur = getProgress(progressMap, qid);
     const next: Progress = { ...cur, ...partial };
     setProgressMap((m) => ({ ...m, [qid]: next }));
+
+    // 1) 中核カラム（必ず保存する。ここは常に成功させたい）
     const { error } = await supabase.from("user_question_progress").upsert(
       {
         user_id: userId,
@@ -296,6 +331,25 @@ export function LearningApp({
       { onConflict: "user_id,question_id" }
     );
     if (error) console.error("save failed", error);
+
+    // 2) FSRS カラム（解答時のみ・別クエリ）。列が無い環境ではここだけ失敗し、
+    //    中核の保存は守られる（マイグレーション適用前にデプロイしても壊れない）。
+    if (partial.fsrs_state !== undefined) {
+      const { error: e2 } = await supabase
+        .from("user_question_progress")
+        .update({
+          fsrs_stability: next.fsrs_stability ?? null,
+          fsrs_difficulty: next.fsrs_difficulty ?? null,
+          fsrs_due: next.fsrs_due ?? null,
+          fsrs_last_review: next.fsrs_last_review ?? null,
+          fsrs_reps: next.fsrs_reps ?? 0,
+          fsrs_lapses: next.fsrs_lapses ?? 0,
+          fsrs_state: next.fsrs_state ?? "new",
+        })
+        .eq("user_id", userId)
+        .eq("question_id", qid);
+      if (e2) console.error("[fsrs] save skipped:", e2.code, e2.message);
+    }
   };
 
   const restingCount = useMemo(
@@ -353,9 +407,10 @@ export function LearningApp({
       const magure = isCorrect && confidence === 3;
       setAnswered(true);
       const cur = getProgress(progressMap, q.id);
-      const partial: Partial<Progress> = isCorrect
+      const base: Partial<Progress> = isCorrect
         ? { correct_count: cur.correct_count + 1, consecutive_correct: magure ? 0 : cur.consecutive_correct + 1, last_is_correct: true, last_answered_at: new Date().toISOString(), last_confidence: confidence }
         : { wrong_count: cur.wrong_count + 1, consecutive_correct: 0, last_is_correct: false, last_answered_at: new Date().toISOString(), last_confidence: confidence };
+      const partial: Partial<Progress> = { ...base, ...fsrsFields(cur, isCorrect, confidence, Date.now()) };
       setSessionResults((r) => [...r, { correct: isCorrect, category: q.category_name, color: q.category_color }]);
       persist(q.id, partial);
       recordAnswer(q, isCorrect, confidence);
@@ -367,9 +422,10 @@ export function LearningApp({
       const cur = getProgress(progressMap, q.id);
       // 表示順でシャッフルしているため、保存は元(DB)のインデックスに戻す
       const selectedOrig = q.optionOrder ? q.optionOrder[picked] : picked;
-      const partial: Partial<Progress> = isCorrect
+      const base: Partial<Progress> = isCorrect
         ? { correct_count: cur.correct_count + 1, consecutive_correct: magure ? 0 : cur.consecutive_correct + 1, last_is_correct: true, last_selected_index: selectedOrig, last_answered_at: new Date().toISOString(), last_confidence: confidence }
         : { wrong_count: cur.wrong_count + 1, consecutive_correct: 0, last_is_correct: false, last_selected_index: selectedOrig, last_answered_at: new Date().toISOString(), last_confidence: confidence };
+      const partial: Partial<Progress> = { ...base, ...fsrsFields(cur, isCorrect, confidence, Date.now()) };
       setSessionResults((r) => [...r, { correct: isCorrect, category: q.category_name, color: q.category_color }]);
       persist(q.id, partial);
       recordAnswer(q, isCorrect, confidence);
