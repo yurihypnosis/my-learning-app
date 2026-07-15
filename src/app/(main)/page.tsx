@@ -140,6 +140,21 @@ export default async function HomePage({
       };
     });
 
+  // ── 試験区分ごとの試験日（DB: user_exam_goals・本人のみ RLS）──
+  const { data: goalRow } = await supabase
+    .from("user_exam_goals")
+    .select("exam_date, target_name")
+    .eq("user_id", user!.id)
+    .eq("exam_key", examKey)
+    .maybeSingle();
+  const initialGoal = goalRow
+    ? {
+        examDate: (goalRow.exam_date as string | null) ?? "",
+        targetName: (goalRow.target_name as string | null) ?? "",
+      }
+    : null;
+  const examName = examGroups.find((g) => g.examKey === examKey)?.examName ?? subject.name;
+
   return (
     <LearningApp
       userId={user!.id}
@@ -155,6 +170,9 @@ export default async function HomePage({
       }))}
       questions={questions}
       initialProgress={progressMap}
+      goalExamKey={examKey}
+      examName={examName}
+      initialGoal={initialGoal}
     />
   );
 }

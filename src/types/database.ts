@@ -190,6 +190,26 @@ export interface Database {
           },
         ];
       };
+      user_exam_goals: {
+        Row: {
+          user_id: string;
+          exam_key: string;
+          exam_date: string | null;
+          target_name: string;
+          updated_at: string;
+        };
+        Insert: {
+          user_id: string;
+          exam_key: string;
+          exam_date?: string | null;
+          target_name?: string;
+        };
+        Update: {
+          exam_date?: string | null;
+          target_name?: string;
+        };
+        Relationships: [];
+      };
     };
     Views: { [_ in never]: never };
     Functions: { [_ in never]: never };

@@ -2,31 +2,11 @@ import type { QuizQuestion, Progress } from "./types";
 import type { ProgressMap } from "./selection";
 import { getProgress } from "./selection";
 
-// ゴール設定（localStorage に保存）
+// 試験日（目標）。試験区分(exam group)ごとに DB(user_exam_goals)へ保存する。
+// 保存/読込は Supabase 経由（RLS で本人のみ）。examKey は examGroupKey(slug)。
 export interface UserGoal {
   examDate: string; // YYYY-MM-DD
   targetName: string;
-}
-
-export function loadGoal(subjectSlug: string): UserGoal | null {
-  try {
-    const raw = localStorage.getItem(`goal_${subjectSlug}`);
-    return raw ? (JSON.parse(raw) as UserGoal) : null;
-  } catch {
-    return null;
-  }
-}
-
-export function saveGoal(subjectSlug: string, goal: UserGoal | null): void {
-  try {
-    if (goal) {
-      localStorage.setItem(`goal_${subjectSlug}`, JSON.stringify(goal));
-    } else {
-      localStorage.removeItem(`goal_${subjectSlug}`);
-    }
-  } catch {
-    // ignore
-  }
 }
 
 // 進捗(Progress)だけから算出する習得度スコア (0–1)

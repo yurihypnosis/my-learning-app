@@ -24,8 +24,6 @@ import {
   type UserGoal,
   type ExamGroup,
   type SectionQuestionRef,
-  loadGoal,
-  saveGoal,
   calcMasteryStats,
   calcDailyRec,
   analyzeSections,
@@ -113,6 +111,10 @@ interface Props {
   categories: { id: string; name: string; color: string }[];
   questions: QuizQuestion[];
   initialProgress: ProgressMap;
+  // 試験区分ごとの試験日（DB: user_exam_goals）。サーバから初期値を受け取る。
+  goalExamKey: string;
+  examName: string;
+  initialGoal: UserGoal | null;
 }
 
 // 最終学習日を「今日 / 昨日 / N日前 / M/D」の短い表記にする。
@@ -172,6 +174,9 @@ export function LearningApp({
   categories,
   questions,
   initialProgress,
+  goalExamKey,
+  examName,
+  initialGoal,
 }: Props) {
   const router = useRouter();
   const [now, setNow] = useState(0);
@@ -208,20 +213,28 @@ export function LearningApp({
   const [exportMode, setExportMode] = useState<ExportMode>("weak");
   const [copyMsg, setCopyMsg] = useState("");
 
-  const [goal, setGoal] = useState<UserGoal | null>(null);
+  // 試験区分ごとの試験日。サーバ(DB)由来の initialGoal を初期値にし、
+  // 試験区分が変わったら（別試験へ切替）サーバの新しい値へ同期する。
+  const [goal, setGoal] = useState<UserGoal | null>(initialGoal);
   const [goalDraft, setGoalDraft] = useState<{ examDate: string; targetName: string }>({
-    examDate: "",
-    targetName: "",
+    examDate: initialGoal?.examDate ?? "",
+    targetName: initialGoal?.targetName ?? "",
   });
   const [sessionStartPassProb, setSessionStartPassProb] = useState<number | null>(null);
 
   useEffect(() => {
-    const ts = Date.now();
-    setNow(ts);
-    const g = loadGoal(currentSubjectSlug);
-    setGoal(g);
-    if (g) setGoalDraft({ examDate: g.examDate, targetName: g.targetName });
-  }, [currentSubjectSlug]);
+    setNow(Date.now());
+  }, []);
+
+  useEffect(() => {
+    setGoal(initialGoal);
+    setGoalDraft({
+      examDate: initialGoal?.examDate ?? "",
+      targetName: initialGoal?.targetName ?? "",
+    });
+    // 試験区分キーが変わったときだけ同期（同一試験内のセット切替では維持）。
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [goalExamKey]);
 
   // ヘッダの Home ボタンからの合図で、内部画面(クイズ/分析など)を
   // トップ(メニュー)へ戻す。別ルートからの遷移は新規マウントで menu になる。
@@ -425,18 +438,32 @@ export function LearningApp({
 
   // ── GOAL ──────────────────────────────────────────────────────────────
   if (screen === "goal") {
-    const handleSaveGoal = () => {
+    const handleSaveGoal = async () => {
       if (!goalDraft.examDate) return;
       const g: UserGoal = { examDate: goalDraft.examDate, targetName: goalDraft.targetName };
-      saveGoal(currentSubjectSlug, g);
       setGoal(g);
       setScreen("menu");
+      const { error } = await supabase.from("user_exam_goals").upsert(
+        {
+          user_id: userId,
+          exam_key: goalExamKey,
+          exam_date: g.examDate,
+          target_name: g.targetName,
+        },
+        { onConflict: "user_id,exam_key" }
+      );
+      if (error) console.error("[user_exam_goals] save failed:", error.code, error.message);
     };
-    const handleClearGoal = () => {
-      saveGoal(currentSubjectSlug, null);
+    const handleClearGoal = async () => {
       setGoal(null);
       setGoalDraft({ examDate: "", targetName: "" });
       setScreen("menu");
+      const { error } = await supabase
+        .from("user_exam_goals")
+        .delete()
+        .eq("user_id", userId)
+        .eq("exam_key", goalExamKey);
+      if (error) console.error("[user_exam_goals] clear failed:", error.code, error.message);
     };
 
     return (
@@ -457,7 +484,7 @@ export function LearningApp({
             type="text"
             value={goalDraft.targetName}
             onChange={(e) => setGoalDraft((d) => ({ ...d, targetName: e.target.value }))}
-            placeholder={`例: ${subjectName} 合格`}
+            placeholder={`例: ${examName} 合格`}
             className="mb-6 w-full rounded-xl border border-[#2a2f3f] bg-[#1a1d27] px-4 py-3 text-sm text-white outline-none placeholder:text-[#555e70] focus:border-[#3b82f6] transition-colors"
           />
 
@@ -655,7 +682,7 @@ export function LearningApp({
               <div className="mb-3 flex items-start justify-between gap-4">
                 <div className="min-w-0">
                   <p className="truncate text-sm font-medium text-white">
-                    {goal.targetName || subjectName}
+                    {goal.targetName || examName}
                   </p>
                   <p className="text-xs text-[#555e70]">残り {dailyRec.daysRemaining} 日</p>
                 </div>
