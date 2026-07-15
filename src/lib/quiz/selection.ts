@@ -48,6 +48,21 @@ function shuffle<T>(arr: T[]): T[] {
   return a;
 }
 
+// 解説の自由文が選択肢を「位置ラベル」で参照しているかを判定する。
+// 例:「選択肢Bは過剰装備」「正解はC」「（A）を決めて…」。これらは DB の元順を
+// 前提に書かれているため、表示順をシャッフルすると本文と選択肢が食い違う。
+// 円数字（①②③）は単なる箇条書きにも多用され選択肢参照と判別できないため対象外。
+// 「選択肢」接頭辞・括弧・「正解は」等の強い文脈を要求し、DB / GB 等の誤検出を避ける。
+const OPTION_REF_RE =
+  /(選択肢\s*[A-DＡ-Ｄa-dａ-ｄ])|([（(]\s*[A-DＡ-Ｄ]\s*[）)])|(正解は\s*[A-DＡ-Ｄ])|([A-DＡ-Ｄ]\s*が正解)/;
+
+export function referencesOptionPositions(q: QuizQuestion): boolean {
+  const d = q.explanation_data;
+  // opt（選択肢別解説）は順序に追従して付け替えるので対象外。本文と自由文のみ検査。
+  const texts = [q.explanation, d?.asked, d?.think, d?.vs];
+  return texts.some((t) => typeof t === "string" && OPTION_REF_RE.test(t));
+}
+
 // 選択肢を表示用にシャッフルする。DB のデータ（options / correct_index）はそのままで、
 // 返す QuizQuestion 上でのみ順序を入れ替える。正解が A に偏る問題への対策。
 // 選択肢の並びに追従して correct_index・correct_indices・選択肢解説(opt) も付け替えるため、
@@ -59,6 +74,10 @@ export function shuffleOptions(q: QuizQuestion): QuizQuestion {
   // 選択肢解説が選択肢数と一致しない場合は、付け替えると解説が崩れるためシャッフルしない
   const opt = q.explanation_data?.opt;
   if (opt && opt.length !== n) return q;
+
+  // 解説の自由文が選択肢を位置ラベルで参照している場合、順序を入れ替えると
+  // 本文（例:「選択肢Bは過剰装備」）と表示が食い違うためシャッフルしない。
+  if (referencesOptionPositions(q)) return q;
 
   const perm = shuffle(Array.from({ length: n }, (_, i) => i)); // perm[表示index] = 元index
   const origToDisp = new Array<number>(n);
