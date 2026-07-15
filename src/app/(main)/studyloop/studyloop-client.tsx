@@ -13,7 +13,9 @@ import {
 import {
   calcCategoryMastery,
   calcMasteryStats,
+  calcSectionMastery,
   questionMastery,
+  type SectionCatalogItem,
 } from "@/lib/quiz/stats";
 
 /* ============================================================
@@ -203,6 +205,10 @@ interface Props {
   subjectName: string;
   categories: { id: string; name: string; color: string }[];
   questions: QuizQuestion[];
+  // 試験(exam)全体の分析用。同一試験の全Setを合算したセクションカタログ。
+  examCatalog: SectionCatalogItem[];
+  examName: string;
+  examSetCount: number;
   initialProgress: ProgressMap;
   streakDays: number;
   calibration: { sureCorrect: number; sureWrong: number; unsureCorrect: number; unsureWrong: number };
@@ -221,6 +227,9 @@ export function StudyLoopClient({
   subjectName,
   categories,
   questions,
+  examCatalog,
+  examName,
+  examSetCount,
   initialProgress,
   streakDays,
   calibration,
@@ -315,6 +324,11 @@ export function StudyLoopClient({
   const catMastery = useMemo(
     () => calcCategoryMastery(categories, questions, progressMap),
     [categories, questions, progressMap]
+  );
+  // 試験全体（同一試験の全Set合算）のセクション別習熟度。分析(Dashboard)で使う。
+  const examSectionMastery = useMemo(
+    () => calcSectionMastery(examCatalog, progressMap),
+    [examCatalog, progressMap]
   );
 
   const avgAccuracy = useMemo(() => {
@@ -600,7 +614,9 @@ export function StudyLoopClient({
                 { label: "定着した概念", value: String(masteryStats.masteredCount), sub: "習得済み", subColor: "#3E8E6E" },
               ]}
               calibration={calibration}
-              cats={catMastery
+              examName={examName}
+              examSetCount={examSetCount}
+              cats={examSectionMastery
                 .filter((c) => c.total > 0)
                 .map((c) => ({ name: c.name, pct: Math.round(c.mastery * 100), color: c.color, attempted: c.attempted }))}
             />
@@ -1004,7 +1020,7 @@ function TbTable({ headers, rows }: { headers: string[]; rows: string[][] }) {
 
 /* ============================ Dashboard ============================ */
 function DashboardScreen({
-  m, padPage, subjectName, stats, calibration, cats,
+  m, padPage, subjectName, stats, calibration, cats, examName, examSetCount,
 }: {
   m: boolean;
   padPage: string;
@@ -1013,7 +1029,12 @@ function DashboardScreen({
   stats: { label: string; value: string; sub: string; subColor: string }[];
   calibration: { sureCorrect: number; sureWrong: number; unsureCorrect: number; unsureWrong: number };
   cats: { name: string; pct: number; color: string; attempted: number }[];
+  examName: string;
+  examSetCount: number;
 }) {
+  // 分野別分析は試験全体（全Set合算）。複数Setがある試験のみ合算バッジを出す。
+  const sectionScope =
+    examSetCount > 1 ? `${examName || "この試験"}・全${examSetCount}セット合算` : subjectName;
   const barColor = (p: number) => (p >= 70 ? "#3E8E6E" : p >= 50 ? "#2E6FB0" : p >= 40 ? "#C2882E" : "#C2492E");
   const heatStyle = (p: number, attempted: number): CSSProperties => {
     let bgc: string, col: string, bd: string;
@@ -1070,7 +1091,15 @@ function DashboardScreen({
         </div>
       </div>
 
-      <h2 style={{ fontFamily: FONT_HEAD, fontWeight: 700, fontSize: "16px", margin: "0 0 14px" }}>カテゴリ別マスタリー</h2>
+      <div style={{ display: "flex", alignItems: "baseline", flexWrap: "wrap", gap: "8px", margin: "0 0 14px" }}>
+        <h2 style={{ fontFamily: FONT_HEAD, fontWeight: 700, fontSize: "16px", margin: 0 }}>分野別マスタリー</h2>
+        <span style={{ fontFamily: FONT_MONO, fontSize: "11px", color: "#8A867B" }}>{sectionScope}</span>
+        {examSetCount > 1 && (
+          <span style={{ fontFamily: FONT_MONO, fontSize: "10px", color: "#4B57C4", background: "#ECEDF8", borderRadius: "6px", padding: "2px 7px" }}>
+            セット横断
+          </span>
+        )}
+      </div>
       <div style={{ background: "#fff", border: "1px solid #EAE6DC", borderRadius: "16px", padding: "20px", marginBottom: "24px", display: "flex", flexDirection: "column", gap: "14px" }}>
         {cats.length === 0 && <div style={{ color: "#8A867B", fontSize: "13px" }}>まだデータがありません。</div>}
         {cats.map((c, i) => (

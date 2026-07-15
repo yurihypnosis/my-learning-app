@@ -1,6 +1,11 @@
 import { createServerSupabaseClient } from "@/lib/supabase/server";
 import type { ProgressMap } from "@/lib/quiz/selection";
 import type { ExplanationData, Progress, QuizQuestion } from "@/lib/quiz/types";
+import {
+  examDisplayName,
+  examGroupKey,
+  type SectionCatalogItem,
+} from "@/lib/quiz/stats";
 import { StudyLoopClient } from "./studyloop-client";
 
 export const dynamic = "force-dynamic";
@@ -58,6 +63,37 @@ export default async function StudyLoopPage({
     ]);
 
   const catMap = new Map((categories ?? []).map((c) => [c.id, c]));
+
+  // ── 試験(exam)全体のセクションカタログ ──
+  // 同じ試験の全Set(subject)を集め、カテゴリ名で横断集計できるように
+  // 軽量なカタログ(問題id × セクション属性)を読み込む。クイズの出題は
+  // 現在のSet単位のまま維持し、分析だけを試験全体に広げる。
+  const examKey = examGroupKey(subject.slug);
+  const examSubjects = subjects.filter((s) => examGroupKey(s.slug) === examKey);
+  const examSubjectIds = examSubjects.map((s) => s.id);
+
+  const [{ data: examCats }, { data: examQ }] = await Promise.all([
+    supabase
+      .from("categories")
+      .select("id, name, color, sort_order")
+      .in("subject_id", examSubjectIds),
+    supabase
+      .from("questions")
+      .select("id, category_id")
+      .in("subject_id", examSubjectIds)
+      .eq("is_active", true),
+  ]);
+
+  const examCatMap = new Map((examCats ?? []).map((c) => [c.id, c]));
+  const examCatalog: SectionCatalogItem[] = (examQ ?? []).map((q) => {
+    const cat = examCatMap.get(q.category_id);
+    return {
+      id: q.id,
+      category_name: cat?.name ?? "未分類",
+      category_color: (cat?.color as string) ?? "#64748b",
+      sort: (cat?.sort_order as number) ?? 0,
+    };
+  });
 
   const questions: QuizQuestion[] = (rawQuestions ?? []).map((q) => {
     const cat = catMap.get(q.category_id);
@@ -135,6 +171,9 @@ export default async function StudyLoopPage({
         color: c.color,
       }))}
       questions={questions}
+      examCatalog={examCatalog}
+      examName={examDisplayName(subject.name)}
+      examSetCount={examSubjects.length}
       initialProgress={progressMap}
       streakDays={streakDays}
       calibration={calibration}

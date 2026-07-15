@@ -29,9 +29,11 @@ export function saveGoal(subjectSlug: string, goal: UserGoal | null): void {
   }
 }
 
-// 問題ごとの習得度スコア (0–1)
+// 進捗(Progress)だけから算出する習得度スコア (0–1)
 // accuracy 60% + 確信度 30% + 連続正解ボーナス 10%
-export function questionMastery(q: QuizQuestion, p: Progress): number {
+// 問題文には依存しないため、問題オブジェクトを持たない集計(試験横断のセクション
+// 集計など)からも同じ式を再利用できる。
+export function masteryFromProgress(p: Progress): number {
   const attempts = p.correct_count + p.wrong_count;
   if (attempts === 0) return 0;
   const accuracy = p.correct_count / attempts;
@@ -40,6 +42,11 @@ export function questionMastery(q: QuizQuestion, p: Progress): number {
     p.last_confidence === 1 ? 1.0 : p.last_confidence === 2 ? 0.5 : 0.0;
   const streakBonus = Math.min(p.consecutive_correct, 3) / 30; // max 0.1
   return Math.min(1, accuracy * 0.6 + selfScore * 0.3 + streakBonus);
+}
+
+// 問題ごとの習得度スコア (0–1)。既存呼び出し互換のための薄いラッパー。
+export function questionMastery(_q: QuizQuestion, p: Progress): number {
+  return masteryFromProgress(p);
 }
 
 export interface MasteryStats {
@@ -182,4 +189,89 @@ export function calcCategoryMastery(
       attempted,
     };
   });
+}
+
+// ── 試験(exam)横断のセクション別分析 ──────────────────────────────
+//
+// 同じ試験の問題集でも Set ごとに subject が分かれるため、そのままでは
+// 苦手傾向がセット単位に分断される。ここでは「試験」を単位に、共通の
+// セクション(=カテゴリ名)で習熟度を合算し、試験全体の苦手傾向を出す。
+
+// slug から Set 接尾辞 "-<英字1文字>" を除いた試験キーを返す。
+//   gcp-pcde-c → gcp-pcde,  ctal-ta-f → ctal-ta
+//   gcp-ace → gcp-ace(不変), dca → dca, gh-200 → gh-200(不変)
+// 単一Setの試験(接尾辞なし)はそのまま自身が試験キーになる。
+export function examGroupKey(slug: string): string {
+  return slug.replace(/-[a-z]$/, "");
+}
+
+// subject 名から Set 表記「(Set X)」等を除いた試験名を返す(表示用)。
+export function examDisplayName(subjectName: string): string {
+  return subjectName
+    .replace(/[（(]\s*Set\s+[A-Za-z][^）)]*[）)]/g, "")
+    .replace(/\s+Set\s+[A-Za-z].*$/i, "")
+    .replace(/\s{2,}/g, " ")
+    .trim();
+}
+
+// セクション集計に必要な最小限の問題情報。習熟度は Progress のみから決まるため
+// 問題本文や選択肢は不要で、id とセクション(カテゴリ)属性だけを渡せばよい。
+export interface SectionCatalogItem {
+  id: string;            // question id（progress 参照キー）
+  category_name: string; // セクション名（Set 間で共通）
+  category_color: string;
+  sort: number;          // カテゴリの sort_order（表示順の安定化用）
+}
+
+export interface SectionMastery {
+  name: string;
+  color: string;
+  mastery: number;       // 0–1 試行済み問題のみの平均
+  masteredCount: number; // mastery >= 0.8 の問題数
+  total: number;         // セクション内の全問題数（全Set合算）
+  attempted: number;     // 試行済み問題数（全Set合算）
+}
+
+// カテゴリ名(=試験セクション)単位で、複数Setをまたいで習熟度を集計する。
+export function calcSectionMastery(
+  items: SectionCatalogItem[],
+  progressMap: ProgressMap
+): SectionMastery[] {
+  interface Agg {
+    color: string;
+    sort: number;
+    total: number;
+    attempted: number;
+    sum: number;
+    mastered: number;
+  }
+  const bySection = new Map<string, Agg>();
+
+  for (const it of items) {
+    let agg = bySection.get(it.category_name);
+    if (!agg) {
+      agg = { color: it.category_color, sort: it.sort, total: 0, attempted: 0, sum: 0, mastered: 0 };
+      bySection.set(it.category_name, agg);
+    }
+    agg.sort = Math.min(agg.sort, it.sort);
+    agg.total++;
+    const p = getProgress(progressMap, it.id);
+    if (p.correct_count + p.wrong_count > 0) {
+      const m = masteryFromProgress(p);
+      agg.attempted++;
+      agg.sum += m;
+      if (m >= 0.8) agg.mastered++;
+    }
+  }
+
+  return [...bySection.entries()]
+    .sort((x, y) => x[1].sort - y[1].sort || x[0].localeCompare(y[0]))
+    .map(([name, a]) => ({
+      name,
+      color: a.color,
+      mastery: a.attempted > 0 ? a.sum / a.attempted : 0,
+      masteredCount: a.mastered,
+      total: a.total,
+      attempted: a.attempted,
+    }));
 }
