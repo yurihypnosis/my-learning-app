@@ -25,11 +25,36 @@ import {
   type ExamGroup,
   type SectionQuestionRef,
   calcMasteryStats,
-  calcDailyRec,
   analyzeSections,
   sectionOverview,
 } from "@/lib/quiz/stats";
 import { type Card, gradeFromAnswer, review } from "@/lib/quiz/fsrs";
+import {
+  type Readiness,
+  type Verdict,
+  computeReadiness,
+  retentionEstimate,
+} from "@/lib/quiz/readiness";
+
+// 合格ナビの前提値（後で試験別に変更可能）
+const PASS_LINE = 0.8; // 合格ライン T
+const DAILY_CAPACITY = 20; // 1日に現実的にこなせる問数
+
+const VERDICT_META: Record<Verdict, { label: string; color: string }> = {
+  passed: { label: "合格圏内", color: "#22c55e" },
+  "on-track": { label: "間に合う", color: "#22c55e" },
+  tight: { label: "ギリギリ", color: "#f59e0b" },
+  "at-risk": { label: "危険", color: "#ef4444" },
+  "no-date": { label: "", color: "#8892a4" },
+};
+
+function daysUntilDate(dateStr: string, nowMs: number): number {
+  const target = new Date(dateStr + "T00:00:00");
+  if (Number.isNaN(target.getTime())) return 0;
+  const today = new Date(nowMs);
+  today.setHours(0, 0, 0, 0);
+  return Math.round((target.getTime() - today.getTime()) / 86_400_000);
+}
 
 // 進捗行 → FSRS カード。列が無い/未学習なら new。
 function cardFromProgress(p: Progress): Card {
@@ -362,6 +387,26 @@ export function LearningApp({
     [questions, progressMap, selCats, now]
   );
 
+  // 合格ナビ: 試験全体（examSections=全Set）× 定着度 × 試験日 から着地予測。
+  const readiness = useMemo<Readiness | null>(() => {
+    if (now === 0 || examSections.length === 0) return null;
+    const ids = [...new Set(examSections.map((s) => s.id))];
+    const retentions = ids.map((id) => retentionEstimate(getProgress(progressMap, id), now));
+    const attempted = ids.reduce((n, id) => {
+      const p = getProgress(progressMap, id);
+      return n + (p.correct_count + p.wrong_count > 0 ? 1 : 0);
+    }, 0);
+    const daysLeft = goal?.examDate ? daysUntilDate(goal.examDate, now) : null;
+    return computeReadiness({
+      retentions,
+      total: ids.length,
+      attempted,
+      daysLeft,
+      capacity: DAILY_CAPACITY,
+      passLine: PASS_LINE,
+    });
+  }, [examSections, progressMap, goal, now]);
+
   const enterQuiz = (pool: QuizQuestion[]) => {
     if (!pool.length) return;
     setSessionStartPassProb(calcMasteryStats(questions, progressMap).passProb);
@@ -576,12 +621,7 @@ export function LearningApp({
       const p = getProgress(progressMap, q.id);
       return p.correct_count + p.wrong_count > 0;
     }).length;
-    const stats = calcMasteryStats(questions, progressMap);
-    const dailyRec = calcDailyRec(questions, progressMap, now, goal?.examDate ?? null);
     const countOptions = [5, 10, 20, eligible.length];
-
-    const probColor =
-      stats.passProb >= 70 ? "#22c55e" : stats.passProb >= 50 ? "#f59e0b" : "#ef4444";
 
     return (
       <div className={wrap}>
@@ -732,39 +772,72 @@ export function LearningApp({
             )}
           </div>
 
-          {/* Goal card */}
-          {goal ? (
+          {/* 合格ナビ card */}
+          {goal && readiness ? (
             <div className="mb-6 rounded-xl border border-[#2a2f3f] bg-[#1a1d27] p-4">
-              <div className="mb-3 flex items-start justify-between gap-4">
+              <div className="mb-3 flex items-start justify-between gap-3">
                 <div className="min-w-0">
                   <p className="truncate text-sm font-medium text-white">
                     {goal.targetName || examName}
                   </p>
-                  <p className="text-xs text-[#555e70]">残り {dailyRec.daysRemaining} 日</p>
-                </div>
-                <div className="shrink-0 text-right">
-                  <p className="text-2xl font-bold tabular-nums" style={{ color: probColor }}>
-                    {stats.passProb}%
+                  <p className="text-xs text-[#555e70]">
+                    試験まで残り {readiness.daysLeft} 日
                   </p>
-                  <p className="text-[10px] text-[#555e70]">合格確率</p>
                 </div>
+                {VERDICT_META[readiness.verdict].label && (
+                  <span
+                    className="shrink-0 rounded-full px-2.5 py-1 text-[11px] font-semibold"
+                    style={{
+                      color: VERDICT_META[readiness.verdict].color,
+                      background: VERDICT_META[readiness.verdict].color + "22",
+                    }}
+                  >
+                    {VERDICT_META[readiness.verdict].label}
+                  </span>
+                )}
               </div>
-              <div className="mb-3 h-px overflow-hidden rounded-full bg-[#2a2f3f]">
+
+              <div className="mb-1 flex items-baseline justify-between text-xs">
+                <span className="text-[#8892a4]">
+                  現在{" "}
+                  <b className="tabular-nums text-white">
+                    {Math.round(readiness.readinessNow * 100)}%
+                  </b>
+                </span>
+                <span className="text-[#8892a4]">
+                  試験日予測{" "}
+                  <b className="tabular-nums" style={{ color: VERDICT_META[readiness.verdict].color }}>
+                    {Math.round(readiness.projectedAtExam * 100)}%
+                  </b>
+                </span>
+              </div>
+              <div className="relative mb-1 h-2 overflow-hidden rounded-full bg-[#2a2f3f]">
                 <div
                   className="h-full rounded-full transition-all duration-500"
-                  style={{ width: `${stats.passProb}%`, background: probColor }}
+                  style={{
+                    width: `${Math.round(readiness.readinessNow * 100)}%`,
+                    background: VERDICT_META[readiness.verdict].color,
+                  }}
+                />
+                <div
+                  className="absolute -top-0.5 bottom-[-2px] w-px bg-white/70"
+                  style={{ left: `${Math.round(readiness.passLine * 100)}%` }}
+                  title={`合格ライン ${Math.round(readiness.passLine * 100)}%`}
                 />
               </div>
+              <p className="mb-3 text-[10px] text-[#3a4050]">
+                白線 = 合格ライン {Math.round(readiness.passLine * 100)}%
+              </p>
+
               <div className="flex items-center justify-between">
-                <p className="text-xs text-[#555e70]">
-                  {dailyRec.newCount > 0 && `新規 ${dailyRec.newCount}問`}
-                  {dailyRec.newCount > 0 && dailyRec.reviewCount > 0 && " · "}
-                  {dailyRec.reviewCount > 0 && `復習 ${dailyRec.reviewCount}問`}
-                  {dailyRec.newCount === 0 && dailyRec.reviewCount === 0 && "今日のタスク完了"}
+                <p className="text-xs" style={{ color: VERDICT_META[readiness.verdict].color }}>
+                  {readiness.verdict === "passed"
+                    ? "合格ラインに到達。維持しよう"
+                    : `合格ラインまで 1日 ${readiness.neededPerDayForPass} 問`}
                 </p>
                 <button
                   onClick={() => setScreen("goal")}
-                  className="text-xs text-[#555e70] transition hover:text-[#8892a4]"
+                  className="shrink-0 text-xs text-[#555e70] transition hover:text-[#8892a4]"
                 >
                   編集
                 </button>
