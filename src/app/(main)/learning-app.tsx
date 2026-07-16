@@ -27,6 +27,7 @@ import {
   calcMasteryStats,
   analyzeSections,
   sectionOverview,
+  weakReviewPool,
 } from "@/lib/quiz/stats";
 import { type Card, gradeFromAnswer, review } from "@/lib/quiz/fsrs";
 import {
@@ -36,6 +37,9 @@ import {
   passLineFor,
   retentionEstimate,
 } from "@/lib/quiz/readiness";
+
+// 「苦手だけ演習」1セッションの上限。弱点順に上位から出す（多すぎる一括を避ける）。
+const WEAK_SESSION_MAX = 30;
 
 const VERDICT_META: Record<Verdict, { label: string; color: string }> = {
   passed: { label: "合格圏内", color: "#22c55e" },
@@ -195,6 +199,10 @@ interface Props {
   examSections: SectionQuestionRef[];
   categories: { id: string; name: string; color: string }[];
   questions: QuizQuestion[];
+  // 現在の試験区分に属する全セットの問題（横断の苦手演習・分析用）。
+  examQuestions: QuizQuestion[];
+  // examQuestions の各問がどのセット(slug)由来か（横断演習の記録・表示用）。
+  examQuestionSlug: Record<string, string>;
   initialProgress: ProgressMap;
   // 試験区分ごとの試験日（DB: user_exam_goals）。サーバから初期値を受け取る。
   goalExamKey: string;
@@ -259,6 +267,8 @@ export function LearningApp({
   examSections,
   categories,
   questions,
+  examQuestions,
+  examQuestionSlug,
   initialProgress,
   goalExamKey,
   examName,
@@ -356,7 +366,7 @@ export function LearningApp({
       category_id: q.category_id,
       category_name: q.category_name,
       category_color: q.category_color,
-      subject_slug: currentSubjectSlug,
+      subject_slug: examQuestionSlug[q.id] ?? currentSubjectSlug,
       is_correct: isCorrect,
       confidence: conf,
     }).then(({ error }) => {
@@ -416,6 +426,17 @@ export function LearningApp({
   const eligible = useMemo(
     () => eligibleQuestions(questions, progressMap, selCats, now),
     [questions, progressMap, selCats, now]
+  );
+
+  // 試験区分の全セットを横断した「間違えた/苦手」問題プール（弱点順）。
+  const examWeakPool = useMemo(
+    () => weakReviewPool(examQuestions, progressMap),
+    [examQuestions, progressMap]
+  );
+  // この試験区分が複数セットか（横断であることを UI で示すかの判定）。
+  const isMultiSet = useMemo(
+    () => (examGroups.find((g) => g.examKey === currentExamKey)?.sets.length ?? 1) > 1,
+    [examGroups, currentExamKey]
   );
 
   // 合格ナビ: 試験全体（examSections=全Set）× 定着度 × 試験日 から着地予測。
@@ -901,6 +922,26 @@ export function LearningApp({
             </button>
           )}
 
+          {/* 苦手だけ演習（試験区分の全セット横断・弱点順） */}
+          {examWeakPool.length > 0 && (
+            <button
+              onClick={() => startReview(examWeakPool.slice(0, WEAK_SESSION_MAX))}
+              className="mb-6 flex w-full items-center justify-between gap-3 rounded-xl border border-[#3a1d1d] bg-[#181215] px-4 py-3.5 text-left transition hover:border-[#ef4444]"
+            >
+              <div className="min-w-0">
+                <p className="text-sm font-medium text-white">苦手だけ演習</p>
+                <p className="text-xs text-[#8892a4]">
+                  {isMultiSet ? "全セット横断・" : ""}間違えた・苦手な問題を弱点順に
+                </p>
+              </div>
+              <span className="shrink-0 rounded-lg bg-[#ef4444]/15 px-3 py-1.5 text-xs font-semibold tabular-nums text-[#f87171]">
+                {examWeakPool.length > WEAK_SESSION_MAX
+                  ? `上位${WEAK_SESSION_MAX} / ${examWeakPool.length}問`
+                  : `${examWeakPool.length}問`}
+              </span>
+            </button>
+          )}
+
           {/* Categories */}
           <p className="mb-2 text-[10px] font-semibold uppercase tracking-widest text-[#555e70]">
             分野
@@ -1209,24 +1250,14 @@ export function LearningApp({
       attempted === 0 ? "#555e70" : pct >= 70 ? "#22c55e" : pct >= 40 ? "#f59e0b" : "#ef4444";
     const overPct = Math.round(overview.mastery * 100);
 
-    // 「このセット」の弱点問題（復習アクション用・現在のSetのみ）
-    const worst = [...questions]
-      .filter((q) => {
-        const p = getProgress(progressMap, q.id);
-        return p.correct_count + p.wrong_count > 0;
-      })
-      .sort((a, b) => {
-        const pa = getProgress(progressMap, a.id);
-        const pb = getProgress(progressMap, b.id);
-        return totalWrong(b, pb) - totalCorrect(pb) - (totalWrong(a, pa) - totalCorrect(pa));
-      })
-      .slice(0, 8);
+    // 弱点問題（試験区分の全セット横断・弱点順に上位8問）
+    const worst = weakReviewPool(examQuestions, progressMap, { limit: 8 });
 
-    // 確信度キャリブレーション（直近の解答: 自信度 × 正誤）。
+    // 確信度キャリブレーション（直近の解答: 自信度 × 正誤・全セット横断）。
     // 「自信あり」なのに誤答 = 思い込みの危険ゾーン（最優先で復習すべき）。
     const cal = { sureCorrect: 0, sureWrong: 0, unsureCorrect: 0, unsureWrong: 0 };
     const dangerQs: QuizQuestion[] = [];
-    for (const q of questions) {
+    for (const q of examQuestions) {
       const p = getProgress(progressMap, q.id);
       if (p.last_confidence === null || p.last_is_correct === null) continue;
       const sure = p.last_confidence === 1;
@@ -1370,7 +1401,7 @@ export function LearningApp({
           {/* Worst questions */}
           <div className="mb-3 flex items-center justify-between">
             <p className="text-[10px] font-semibold uppercase tracking-widest text-[#555e70]">
-              このセットの弱点問題
+              {isMultiSet ? "弱点問題（全セット）" : "弱点問題"}
             </p>
             {worst.length > 0 && (
               <button
@@ -1386,7 +1417,7 @@ export function LearningApp({
           </p>
           <div className="mb-6 space-y-1.5">
             {worst.length === 0 && (
-              <p className="text-xs text-[#555e70]">演習済み問題がありません</p>
+              <p className="text-xs text-[#555e70]">弱点問題はありません（演習するとここに出ます）</p>
             )}
             {worst.map((q) => {
               const p = getProgress(progressMap, q.id);
@@ -1405,6 +1436,11 @@ export function LearningApp({
                       {q.question_text.slice(0, 55)}…
                     </p>
                     <p className="mt-0.5 text-[10px] text-[#555e70]">
+                      {isMultiSet && (
+                        <span className="mr-2 rounded bg-[#1e2230] px-1.5 py-px text-[#8892a4]">
+                          {shortSet(examQuestionSlug[q.id] ?? "")}
+                        </span>
+                      )}
                       誤 {totalWrong(q, p)} 正 {totalCorrect(p)}
                       {p.last_confidence !== null && (
                         <span className="ml-2" style={{ color: CONFIDENCE_COLORS[(p.last_confidence ?? 1) - 1] }}>

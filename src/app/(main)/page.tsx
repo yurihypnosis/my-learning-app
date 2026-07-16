@@ -101,16 +101,25 @@ export default async function HomePage({
     ? (subjects.find((s) => s.slug === subjectSlug) ?? subjects[0])
     : (lastStudied ?? subjects[0]);
 
-  // subject 固有データ
-  const [{ data: categories }, { data: rawQuestions }] = await Promise.all([
+  // ── 現在の試験区分（全セット）を束ねる ──
+  // 「全セット横断で苦手だけ演習」を可能にするため、現在の subject が属する
+  // 試験区分の全アクティブセットの問題をまとめて読み込む。questions（現在セット）は
+  // その部分集合として切り出す。
+  const examKey = examGroupKey(subject.slug);
+  const examSetIds = new Set(
+    subjects.filter((s) => examGroupKey(s.slug) === examKey).map((s) => s.id)
+  );
+
+  const [{ data: categories }, { data: examCats }, { data: rawFamily }] = await Promise.all([
     supabase.from("categories").select("*").eq("subject_id", subject.id).order("sort_order"),
-    supabase.from("questions").select("*").eq("subject_id", subject.id).eq("is_active", true),
+    supabase.from("categories").select("id, name, color, sort_order").in("subject_id", [...examSetIds]),
+    supabase.from("questions").select("*").eq("is_active", true).in("subject_id", [...examSetIds]),
   ]);
 
-  const catMap = new Map((categories ?? []).map((c) => [c.id, c]));
-
-  const questions: QuizQuestion[] = (rawQuestions ?? []).map((q) => {
-    const cat = catMap.get(q.category_id);
+  const examCatMap = new Map((examCats ?? []).map((c) => [c.id, c]));
+  type QRow = NonNullable<typeof rawFamily>[number];
+  const toQuizQuestion = (q: QRow): QuizQuestion => {
+    const cat = examCatMap.get(q.category_id);
     return {
       id: q.id,
       source_ref: q.source_ref,
@@ -127,7 +136,17 @@ export default async function HomePage({
       category_name: cat?.name ?? "未分類",
       category_color: cat?.color ?? "#64748b",
     };
-  });
+  };
+
+  // 試験区分の全問題（横断の苦手演習・分析用）と、その各問がどのセット由来か。
+  const examQuestions: QuizQuestion[] = (rawFamily ?? []).map(toQuizQuestion);
+  const examQuestionSlug: Record<string, string> = {};
+  for (const q of rawFamily ?? []) examQuestionSlug[q.id] = idToSlug.get(q.subject_id) ?? "";
+  // 現在セットの問題（通常クイズ・分野選択はこれで動く）。
+  const questions: QuizQuestion[] = (rawFamily ?? [])
+    .filter((q) => q.subject_id === subject.id)
+    .map(toQuizQuestion);
+
   const refs: QuestionSubjectRef[] = (allQ ?? [])
     .map((q) => ({ id: q.id, slug: idToSlug.get(q.subject_id) ?? "" }))
     .filter((r): r is QuestionSubjectRef => r.slug !== "");
@@ -141,15 +160,6 @@ export default async function HomePage({
 
   // ── 体系的な苦手分析（試験全体）用: 現在の試験に属する全Setの
   //    「問題 × 分野(カテゴリ)」カタログを組み立てる ──
-  const examKey = examGroupKey(subject.slug);
-  const examSetIds = new Set(
-    subjects.filter((s) => examGroupKey(s.slug) === examKey).map((s) => s.id)
-  );
-  const { data: examCats } = await supabase
-    .from("categories")
-    .select("id, name, color, sort_order")
-    .in("subject_id", [...examSetIds]);
-  const examCatMap = new Map((examCats ?? []).map((c) => [c.id, c]));
   const examSections: SectionQuestionRef[] = (allQ ?? [])
     .filter((q) => examSetIds.has(q.subject_id))
     .map((q) => {
@@ -207,6 +217,8 @@ export default async function HomePage({
         color: c.color,
       }))}
       questions={questions}
+      examQuestions={examQuestions}
+      examQuestionSlug={examQuestionSlug}
       initialProgress={progressMap}
       goalExamKey={examKey}
       examName={examName}

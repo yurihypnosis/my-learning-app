@@ -29,6 +29,33 @@ export function questionMastery(_q: QuizQuestion, p: Progress): number {
   return masteryFromProgress(p);
 }
 
+// 「間違えた/苦手」問題だけを弱点順に集める。試験区分の全セットを横断させたい場合は
+// その試験区分の全問題を questions に渡す（呼び出し側で束ねる）。
+//  - 対象: 1回以上解答済み（未着手は「間違えた/苦手」ではないので除外）
+//  - 条件: 誤答したことがある(wrong_count>0 か 直近が誤答) OR 習得度 < threshold
+//  - 並び: 弱点スコア（誤答が多く正解が少ないほど上位。buildDeck の弱点優先と同基準）
+//  - 復習が目的なので休眠(isResting)は無視する（startReview と同じ扱い）。
+export function weakReviewPool(
+  questions: QuizQuestion[],
+  progressMap: ProgressMap,
+  opts?: { masteryThreshold?: number; limit?: number }
+): QuizQuestion[] {
+  const th = opts?.masteryThreshold ?? 0.5;
+  const scored: { q: QuizQuestion; score: number }[] = [];
+  for (const q of questions) {
+    const p = getProgress(progressMap, q.id);
+    if (p.correct_count + p.wrong_count === 0) continue; // 未着手は対象外
+    const wronged = p.wrong_count > 0 || p.last_is_correct === false;
+    const weak = masteryFromProgress(p) < th;
+    if (!wronged && !weak) continue;
+    const score = q.initial_wrong_weight + p.wrong_count - p.correct_count * 0.6;
+    scored.push({ q, score });
+  }
+  scored.sort((a, b) => b.score - a.score);
+  const picked = opts?.limit != null ? scored.slice(0, opts.limit) : scored;
+  return picked.map((s) => s.q);
+}
+
 export interface MasteryStats {
   avgMastery: number;          // 0–1 全問題平均（未着手=0として含む）
   avgMasteryAttempted: number; // 0–1 試行済みのみの平均
