@@ -231,6 +231,32 @@ export interface Database {
         };
         Relationships: [];
       };
+      user_textbooks: {
+        Row: {
+          id: string;
+          user_id: string;
+          exam_key: string;
+          label: string;
+          url: string;
+          sort_order: number;
+          created_at: string;
+          updated_at: string;
+        };
+        Insert: {
+          id?: string;
+          user_id: string;
+          exam_key: string;
+          label?: string;
+          url: string;
+          sort_order?: number;
+        };
+        Update: {
+          label?: string;
+          url?: string;
+          sort_order?: number;
+        };
+        Relationships: [];
+      };
       user_roadmap_items: {
         Row: {
           user_id: string;

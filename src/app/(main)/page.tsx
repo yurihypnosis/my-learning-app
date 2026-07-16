@@ -188,6 +188,20 @@ export default async function HomePage({
     : null;
   const examName = examGroups.find((g) => g.examKey === examKey)?.examName ?? subject.name;
 
+  // ── 試験区分ごとの教科書リンク（DB: user_textbooks・本人のみ RLS）──
+  const { data: textbookRows } = await supabase
+    .from("user_textbooks")
+    .select("id, label, url")
+    .eq("user_id", user!.id)
+    .eq("exam_key", examKey)
+    .order("sort_order", { ascending: true })
+    .order("created_at", { ascending: true });
+  const initialTextbooks = (textbookRows ?? []).map((t) => ({
+    id: t.id as string,
+    label: (t.label as string | null) ?? "",
+    url: t.url as string,
+  }));
+
   // 合格ナビの逆算に使う1日 capacity を、直近の解答実績から推定する。
   const { data: capEvents } = await supabase
     .from("answer_events")
@@ -223,6 +237,7 @@ export default async function HomePage({
       goalExamKey={examKey}
       examName={examName}
       initialGoal={initialGoal}
+      initialTextbooks={initialTextbooks}
       dailyCapacity={dailyCapacity}
     />
   );

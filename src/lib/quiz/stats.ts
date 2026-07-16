@@ -9,6 +9,13 @@ export interface UserGoal {
   targetName: string;
 }
 
+// 教科書リンク。試験区分ごとに複数持てる（1 リンク = 1 行）。DB(user_textbooks)。
+export interface Textbook {
+  id: string;
+  label: string;
+  url: string;
+}
+
 // 進捗(Progress)だけから算出する習得度スコア (0–1)
 // accuracy 60% + 確信度 30% + 連続正解ボーナス 10%
 // 問題文には依存しないため、問題オブジェクトを持たない集計(試験横断のセクション
