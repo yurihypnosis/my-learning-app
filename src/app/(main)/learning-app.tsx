@@ -112,6 +112,20 @@ function RichExplanation({ data }: { data: ExplanationData }) {
         <p>{data.asked}</p>
       </div>
 
+      {data.why_asked && (
+        <div>
+          <p className={lbl}>なぜ問われるか</p>
+          <p>{data.why_asked}</p>
+        </div>
+      )}
+
+      {data.kid && (
+        <div>
+          <p className={lbl}>ざっくり言うと</p>
+          <p>{data.kid}</p>
+        </div>
+      )}
+
       {data.terms && data.terms.length > 0 && (
         <div>
           <p className={lbl}>キーワード</p>
@@ -131,6 +145,22 @@ function RichExplanation({ data }: { data: ExplanationData }) {
         <p className={lbl}>考え方</p>
         <p>{data.think}</p>
       </div>
+
+      {data.snippet && (
+        <div>
+          <p className={lbl}>正しい書き方</p>
+          <pre className="overflow-x-auto rounded-xl bg-[#141720] px-4 py-3.5 font-mono text-xs leading-6 text-[#8892a4]">
+            <code>{data.snippet}</code>
+          </pre>
+        </div>
+      )}
+
+      {data.eg && (
+        <div>
+          <p className={lbl}>たとえると</p>
+          <p>{data.eg}</p>
+        </div>
+      )}
 
       {data.vs && (
         <div>

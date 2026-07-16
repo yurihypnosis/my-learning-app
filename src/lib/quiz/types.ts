@@ -10,8 +10,13 @@ export type QuizMode = "shuffle" | "priority";
 // 解説データの構造（JSONB で保存するリッチ解説）
 export interface ExplanationData {
   asked: string;
+  why_asked?: string;
+  kid?: string;
   terms?: [string, string][];
   think: string;
+  // 正解の書き方を示す短いコード片。コードで示す価値がある問題にのみ付く。
+  snippet?: string;
+  eg?: string;
   vs?: string;
   opt?: string[];
 }
