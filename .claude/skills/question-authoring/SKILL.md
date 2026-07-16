@@ -112,6 +112,55 @@ db.sh query "select count(*) total,
 
 UI での見え方まで変えた場合（新しい explanation_data のキーを足したときなど）は、`npm run dev` で実際に 1 問解いて解説の描画を確認する。**キーを足しただけでは画面には出ない** — `RichExplanation`（`src/app/(main)/learning-app.tsx`）に描画コードが要る。
 
+## 選択肢の作り方（既存データが盛大に外している所）
+
+**問題文を読まずに正解が当てられる問題を作らない。** 既存 1297 問のうち **981 問（76%）は「一番長い選択肢」を選ぶだけで正解できる**（偶然なら 25%）。新しく足す問題でこれを増やさない。
+
+書いたら必ず自問する: **知識ゼロの人がこの4択を見て、正解を絞り込めてしまわないか。**
+
+### やってはいけない
+
+- **正解だけ長い・詳しい。** 正解に根拠や条件を盛り、誤答を短く済ませる。最大の癖。誤答も同じ密度・同じ長さで書く
+- **誤答が自分の誤りを自白する。** 「〜を深く考えずに単純に2倍しただけの数である」「〜を混同してしまっている」。なぜ誤りかは `opt`（解説）に書く。**選択肢には書かない**
+- **正解にだけ括弧の補足を付ける。** 「約83%（(30+15+5)÷60）」→ 計算式は `opt` へ。選択肢は「約83%」だけにする
+- **投げやりな誤答。** 「目視で確認」「何もしない」「追加調査は行わない」「暗号化すれば検出不要」。誰も選ばない選択肢は 4 択を実質 2 択に縮める
+
+### そうではなく
+
+誤答は**現場で実際に選ばれる、もっともらしい間違い**にする。理想は「その分野を半分わかっている人が引っかかる」もの。
+
+- 数値問題 : ありがちな誤計算の結果を置く（母数の取り違え、2倍、2乗、足し算と掛け算の混同）。値だけを並べ、根拠は書かない
+- 概念問題 : 「技術的には動くが要件のどれかを壊す案」「一世代前の正解」「隣接サービスの機能」
+- 長さは揃える。正解が 60 字なら誤答も 50〜70 字に収める
+
+### 解説で選択肢を位置（A/B/C/D）で呼ばない
+
+**アプリは出題時に選択肢をシャッフルする**（`shuffleOptions` / `src/lib/quiz/selection.ts`）。`correct_index` と `opt` は追従して付け替わるが、`asked` / `think` / `vs` / `explanation` の自由文に「選択肢Bは過剰装備」と書くと表示と食い違う。
+
+コードはこれを検知して**その問題だけシャッフルを止める**。つまり位置参照を書くと、**その問題は DB の並び順のまま出続け、正解位置が固定される**（既存データはほぼ全問 `correct_index=0` なので、事実上「答えは常にA」になる）。安全側に倒す実装だが、書く側が気をつければ起きない。
+
+- ✗ 「選択肢Aは過剰装備」「正解はC」
+- ○ 「Cloud Interconnect との組み合わせは過剰装備」（**内容で指す**）
+
+括弧内の1文字も誤検知される。`(C)(R)(U)(D)` のような略号は `(Create)(Read)…` と綴る。
+
+なお `correct_index` が 0 に偏ること自体はシャッフルが吸収するので、無理に散らさなくてよい。**位置参照を書かないことのほうが重要。**
+
+### 自己チェック
+
+適用後に必ず走らせる。正解が単独最長になっていたら書き直す。
+
+```bash
+db.sh query "
+with x as (
+  select q.source_ref, length(q.options->>q.correct_index) as clen,
+    (select max(length(value)) from jsonb_array_elements_text(q.options)
+      with ordinality o(value,i) where o.i-1 <> q.correct_index) as dmax
+  from public.questions q join public.subjects s on s.id=q.subject_id
+  where s.slug='<slug>' and q.question_type='single')
+select source_ref, clen, dmax from x where clen > dmax order by clen-dmax desc;"
+```
+
 ## explanation_data のスキーマ
 
 `src/lib/quiz/types.ts` の `ExplanationData` と一致させること。片方だけ足しても表示されない。
