@@ -1053,6 +1053,7 @@ export function LearningApp({
             {[
               { label: "ロードマップ", action: () => router.push("/roadmap") },
               { label: "学習ログ",     action: () => router.push("/log") },
+              { label: "思考フレーム", action: () => router.push("/mindset") },
               { label: "苦手分析",     action: () => setScreen("analysis") },
               {
                 label: "書き出し",
