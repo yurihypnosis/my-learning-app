@@ -117,6 +117,13 @@ function RichExplanation({ data }: { data: ExplanationData }) {
         <p>{data.asked}</p>
       </div>
 
+      {data.point && (
+        <div className="border-l-2 border-[#3b82f6]/60 pl-3.5">
+          <p className={lbl}>決め手</p>
+          <p className="text-[15px] text-[#e8eaf0]">{data.point}</p>
+        </div>
+      )}
+
       {data.kid && (
         <div>
           <p className={lbl}>ざっくり言うと</p>

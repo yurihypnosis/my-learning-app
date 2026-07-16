@@ -10,6 +10,8 @@ export type QuizMode = "shuffle" | "priority";
 // 解説データの構造（JSONB で保存するリッチ解説）
 export interface ExplanationData {
   asked: string;
+  // 決め手。これだけ覚えれば正解できる一撃の判断ルール。1文。解説の主役として asked 直下に強調表示。
+  point?: string;
   why_asked?: string;
   kid?: string;
   terms?: [string, string][];
