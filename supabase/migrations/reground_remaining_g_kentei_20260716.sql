@@ -1,0 +1,6 @@
+BEGIN;
+UPDATE public.questions SET explanation_data = explanation_data || '{"kid": "畳み込みが拾った特徴（画像のどこに線や角があるか）を、粗くまとめて小さく縮める係。細かい位置が少しズレても「そのあたりに特徴がある」と拾えるので、対象が多少動いても認識がぶれにくくなる。", "point": "拾った特徴を粗くまとめて縮め、位置が多少ずれても拾えるようにするなら、プーリング。"}'::jsonb WHERE source_ref = 'g-kentei-q25' AND subject_id = (SELECT id FROM public.subjects WHERE slug='g-kentei');
+UPDATE public.questions SET explanation_data = explanation_data || '{"kid": "文章のように順番のあるデータを、前から一語ずつ読んでいくAIをRNNという。ただし長い文だと前の方を忘れがち。LSTMは「覚える・忘れる・思い出す」の3つの門を付けて、大事な情報を長く保てるようにした改良版。"}'::jsonb WHERE source_ref = 'g-kentei-q26' AND subject_id = (SELECT id FROM public.subjects WHERE slug='g-kentei');
+UPDATE public.questions SET explanation_data = explanation_data || '{"kid": "文の中の単語が「自分はどの単語と関係が深い？」とお互いを見比べて、関係の強さに応じた重要度をつける仕組み。これで「それ」が何を指すか、などをつかめる。"}'::jsonb WHERE source_ref = 'g-kentei-q27' AND subject_id = (SELECT id FROM public.subjects WHERE slug='g-kentei');
+UPDATE public.questions SET explanation_data = explanation_data || '{"kid": "AIは「陽性らしさが何%以上なら陽性」と線を引いて判定する。この線を甘め（すぐ陽性にする）〜厳しめ（なかなか陽性にしない）まで動かすと成績が変わる。その変化を1本の曲線に描いたのがROC曲線、曲線の下の面積で総合力を1つの数字にしたのがAUC。"}'::jsonb WHERE source_ref = 'g-kentei-q43' AND subject_id = (SELECT id FROM public.subjects WHERE slug='g-kentei');
+COMMIT;
