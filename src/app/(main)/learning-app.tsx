@@ -22,6 +22,7 @@ import {
 import { buildCSV, downloadCSV, type ExportMode } from "@/lib/quiz/csv";
 import {
   type UserGoal,
+  type Textbook,
   type ExamGroup,
   type SectionQuestionRef,
   calcMasteryStats,
@@ -116,17 +117,17 @@ function RichExplanation({ data }: { data: ExplanationData }) {
         <p>{data.asked}</p>
       </div>
 
-      {data.why_asked && (
-        <div>
-          <p className={lbl}>なぜ問われるか</p>
-          <p>{data.why_asked}</p>
-        </div>
-      )}
-
       {data.kid && (
         <div>
           <p className={lbl}>ざっくり言うと</p>
           <p>{data.kid}</p>
+        </div>
+      )}
+
+      {data.eg && (
+        <div>
+          <p className={lbl}>たとえると</p>
+          <p>{data.eg}</p>
         </div>
       )}
 
@@ -159,10 +160,17 @@ function RichExplanation({ data }: { data: ExplanationData }) {
         </div>
       )}
 
-      {data.eg && (
+      {data.vs && (
         <div>
-          <p className={lbl}>たとえると</p>
-          <p>{data.eg}</p>
+          <p className={lbl}>混同ポイント</p>
+          <p>{data.vs}</p>
+        </div>
+      )}
+
+      {data.why_asked && (
+        <div>
+          <p className={lbl}>なぜ問われるか</p>
+          <p>{data.why_asked}</p>
         </div>
       )}
 
@@ -170,13 +178,6 @@ function RichExplanation({ data }: { data: ExplanationData }) {
         <div className="rounded-xl border border-[#1e2530] bg-[#12151d] px-4 py-3">
           <p className={lbl}>使いどころ・どう役立つか</p>
           <p>{data.usecase}</p>
-        </div>
-      )}
-
-      {data.vs && (
-        <div>
-          <p className={lbl}>混同ポイント</p>
-          <p>{data.vs}</p>
         </div>
       )}
 
@@ -215,6 +216,8 @@ interface Props {
   goalExamKey: string;
   examName: string;
   initialGoal: UserGoal | null;
+  // 試験区分ごとの教科書リンク（DB: user_textbooks）。
+  initialTextbooks: Textbook[];
   dailyCapacity: number;
 }
 
@@ -280,6 +283,7 @@ export function LearningApp({
   goalExamKey,
   examName,
   initialGoal,
+  initialTextbooks,
   dailyCapacity,
 }: Props) {
   const router = useRouter();
@@ -328,6 +332,12 @@ export function LearningApp({
   });
   const [sessionStartPassProb, setSessionStartPassProb] = useState<number | null>(null);
 
+  // 試験区分ごとの教科書リンク。goal と同様、区分が変わったらサーバの新しい値へ同期する。
+  const [textbooks, setTextbooks] = useState<Textbook[]>(initialTextbooks);
+  const [tbEditing, setTbEditing] = useState(false);
+  const [tbDraft, setTbDraft] = useState<{ label: string; url: string }>({ label: "", url: "" });
+  const [tbError, setTbError] = useState<string | null>(null);
+
   useEffect(() => {
     setNow(Date.now());
   }, []);
@@ -338,6 +348,10 @@ export function LearningApp({
       examDate: initialGoal?.examDate ?? "",
       targetName: initialGoal?.targetName ?? "",
     });
+    setTextbooks(initialTextbooks);
+    setTbEditing(false);
+    setTbDraft({ label: "", url: "" });
+    setTbError(null);
     // 試験区分キーが変わったときだけ同期（同一試験内のセット切替では維持）。
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [goalExamKey]);
@@ -365,6 +379,46 @@ export function LearningApp({
   }, [memoText]);
 
   const supabase = useMemo(() => createClient(), []);
+
+  // ── 教科書リンク CRUD（試験区分ごと・楽観的更新）──
+  const addTextbook = async () => {
+    const url = tbDraft.url.trim();
+    const label = tbDraft.label.trim();
+    if (!/^https?:\/\//i.test(url)) {
+      setTbError("URL は http:// または https:// で始めてください");
+      return;
+    }
+    const id = crypto.randomUUID();
+    setTextbooks((list) => [...list, { id, label, url }]);
+    setTbDraft({ label: "", url: "" });
+    setTbError(null);
+    const { error } = await supabase.from("user_textbooks").insert({
+      id,
+      user_id: userId,
+      exam_key: goalExamKey,
+      label,
+      url,
+      sort_order: textbooks.length,
+    });
+    if (error) {
+      console.error("[user_textbooks] add failed:", error.code, error.message);
+      setTextbooks((list) => list.filter((t) => t.id !== id)); // ロールバック
+      setTbError("保存に失敗しました");
+    }
+  };
+  const deleteTextbook = async (id: string) => {
+    const prev = textbooks;
+    setTextbooks((list) => list.filter((t) => t.id !== id));
+    const { error } = await supabase
+      .from("user_textbooks")
+      .delete()
+      .eq("user_id", userId)
+      .eq("id", id);
+    if (error) {
+      console.error("[user_textbooks] delete failed:", error.code, error.message);
+      setTextbooks(prev); // ロールバック
+    }
+  };
 
   const recordAnswer = (q: QuizQuestion, isCorrect: boolean, conf: number | null) => {
     supabase.from("answer_events").insert({
@@ -928,6 +982,134 @@ export function LearningApp({
               <p className="text-xs text-[#555e70]">合格確率と今日のノルマを逆算します</p>
             </button>
           )}
+
+          {/* 教科書リンク（試験区分ごと・クリックで外部ページへ） */}
+          <section className="mb-6">
+            <div className="mb-2 flex items-center justify-between">
+              <p className="text-[10px] font-semibold uppercase tracking-widest text-[#555e70]">
+                教科書
+              </p>
+              {(textbooks.length > 0 || tbEditing) && (
+                <button
+                  onClick={() => {
+                    setTbEditing((v) => !v);
+                    setTbError(null);
+                  }}
+                  className="text-xs text-[#555e70] transition hover:text-[#8892a4]"
+                >
+                  {tbEditing ? "完了" : "編集"}
+                </button>
+              )}
+            </div>
+
+            {textbooks.length > 0 && (
+              <div className="overflow-hidden rounded-xl border border-[#2a2f3f] bg-[#1a1d27]">
+                {textbooks.map((tb, i) => (
+                  <div
+                    key={tb.id}
+                    className={`flex items-center ${i > 0 ? "border-t border-[#20242e]" : ""}`}
+                  >
+                    <a
+                      href={tb.url}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="group flex min-w-0 flex-1 items-center gap-2.5 px-3.5 py-3 transition hover:bg-[#1e2230]"
+                    >
+                      <svg
+                        width="15"
+                        height="15"
+                        viewBox="0 0 24 24"
+                        fill="none"
+                        stroke="currentColor"
+                        strokeWidth="1.8"
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                        className="shrink-0 text-[#555e70]"
+                      >
+                        <path d="M4 5a2 2 0 0 1 2-2h12v16H6a2 2 0 0 0-2 2V5Z" />
+                        <path d="M4 19a2 2 0 0 0 2 2h12" />
+                      </svg>
+                      <span className="min-w-0 flex-1 truncate text-sm text-[#c0c8d8] transition group-hover:text-white">
+                        {tb.label || tb.url}
+                      </span>
+                      <svg
+                        width="13"
+                        height="13"
+                        viewBox="0 0 24 24"
+                        fill="none"
+                        stroke="currentColor"
+                        strokeWidth="1.8"
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                        className="shrink-0 text-[#555e70] transition group-hover:text-[#8892a4]"
+                      >
+                        <path d="M7 17 17 7M9 7h8v8" />
+                      </svg>
+                    </a>
+                    {tbEditing && (
+                      <button
+                        onClick={() => deleteTextbook(tb.id)}
+                        aria-label="削除"
+                        className="mr-1.5 shrink-0 rounded-md px-2 py-2 text-[#555e70] transition hover:bg-[#ef4444]/15 hover:text-[#ef4444]"
+                      >
+                        <svg
+                          width="14"
+                          height="14"
+                          viewBox="0 0 24 24"
+                          fill="none"
+                          stroke="currentColor"
+                          strokeWidth="2"
+                          strokeLinecap="round"
+                        >
+                          <path d="M6 6l12 12M18 6 6 18" />
+                        </svg>
+                      </button>
+                    )}
+                  </div>
+                ))}
+              </div>
+            )}
+
+            {textbooks.length === 0 && !tbEditing && (
+              <button
+                onClick={() => setTbEditing(true)}
+                className="w-full rounded-xl border border-dashed border-[#2a2f3f] px-4 py-3.5 text-left transition hover:border-[#3a4050]"
+              >
+                <p className="text-sm text-[#8892a4]">教科書リンクを追加</p>
+                <p className="text-xs text-[#555e70]">Claude アーティファクト等の公開ページ URL を貼る</p>
+              </button>
+            )}
+
+            {tbEditing && (
+              <div className="mt-2 rounded-xl border border-[#2a2f3f] bg-[#14161d] p-3">
+                <input
+                  type="text"
+                  value={tbDraft.label}
+                  onChange={(e) => setTbDraft((d) => ({ ...d, label: e.target.value }))}
+                  placeholder="タイトル（例: 公式ドキュメントまとめ）"
+                  className="mb-2 w-full rounded-lg border border-[#2a2f3f] bg-[#1a1d27] px-3 py-2 text-sm text-white outline-none transition-colors placeholder:text-[#555e70] focus:border-[#3b82f6]"
+                />
+                <input
+                  type="url"
+                  value={tbDraft.url}
+                  onChange={(e) => setTbDraft((d) => ({ ...d, url: e.target.value }))}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter") addTextbook();
+                  }}
+                  placeholder="https://claude.ai/public/artifacts/..."
+                  className="w-full rounded-lg border border-[#2a2f3f] bg-[#1a1d27] px-3 py-2 text-sm text-white outline-none transition-colors placeholder:text-[#555e70] focus:border-[#3b82f6]"
+                />
+                {tbError && <p className="mt-1.5 text-[11px] text-[#ef4444]">{tbError}</p>}
+                <button
+                  onClick={addTextbook}
+                  disabled={!tbDraft.url.trim()}
+                  className="mt-2.5 w-full rounded-lg bg-[#3b82f6] px-4 py-2 text-sm font-medium text-white transition hover:bg-[#3b82f6]/90 disabled:cursor-not-allowed disabled:opacity-40"
+                >
+                  追加
+                </button>
+              </div>
+            )}
+          </section>
 
           {/* 苦手だけ演習（試験区分の全セット横断・弱点順） */}
           {examWeakPool.length > 0 && (
