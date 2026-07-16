@@ -17,6 +17,8 @@ export interface ExplanationData {
   // 正解の書き方を示す短いコード片。コードで示す価値がある問題にのみ付く。
   snippet?: string;
   eg?: string;
+  // 実務での使いどころ・どう役立つか。概念を現場のユースケースに接続する。
+  usecase?: string;
   vs?: string;
   opt?: string[];
 }

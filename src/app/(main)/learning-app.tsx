@@ -166,6 +166,13 @@ function RichExplanation({ data }: { data: ExplanationData }) {
         </div>
       )}
 
+      {data.usecase && (
+        <div className="rounded-xl border border-[#1e2530] bg-[#12151d] px-4 py-3">
+          <p className={lbl}>使いどころ・どう役立つか</p>
+          <p>{data.usecase}</p>
+        </div>
+      )}
+
       {data.vs && (
         <div>
           <p className={lbl}>混同ポイント</p>
