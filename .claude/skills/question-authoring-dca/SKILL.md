@@ -30,7 +30,7 @@ Storage and Volumes
 
 ## 解説の流儀
 
-`asked` / `terms` / `think` / `vs` / `opt` の 5 キー。`kid` / `why_asked` / `eg` は未使用。
+**全81問が clarity フル装備（2026-07-16）: `asked` / `point` / `kid` / `eg` / `terms` / `think` / `vs` / `usecase` / `opt`。** `why_asked` は一部のみ。新規追加も同じ基準でそろえる（`point`＝決め手1文、`eg`＝一行のたとえ、`think`＝比喩リッチな詳細）。世界一わかりやすくする方針は `explanation-clarity` スキルを読む。
 
 `snippet` は未使用だが、**このファミリーは相性が良い**（Dockerfile やコマンドの模範解答を示せる）。付けるなら描画は実装済みなのでそのまま出る。
 
