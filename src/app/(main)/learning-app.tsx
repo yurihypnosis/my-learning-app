@@ -927,86 +927,96 @@ export function LearningApp({
             )}
           </div>
 
-          {/* 合格ナビ card */}
-          {goal && readiness ? (
-            <div className="mb-6 rounded-xl border border-[#2a2f3f] bg-[#1a1d27] p-4">
-              <div className="mb-3 flex items-start justify-between gap-3">
-                <div className="min-w-0">
-                  <p className="truncate text-sm font-medium text-white">
-                    {goal.targetName || examName}
-                  </p>
-                  <p className="text-xs text-[#555e70]">
-                    試験まで残り {readiness.daysLeft} 日
-                  </p>
+          {/* 合格ナビ card — 本日時点の合格可能性は試験日と独立に常時表示。
+              試験日があれば加えて着地予測・ノルマも出す。 */}
+          {readiness &&
+            (() => {
+              const hasDate = readiness.verdict !== "no-date";
+              const nowPct = Math.round(readiness.readinessNow * 100);
+              const passPct = Math.round(readiness.passLine * 100);
+              const nowReached = readiness.readinessNow >= readiness.passLine;
+              // 本日時点の色: 合格ライン到達なら緑、未到達は学習中を示すアクセント青。
+              const nowColor = nowReached ? "#22c55e" : "#3b82f6";
+              // ヘッダーのバッジ: 試験日ありは着地予測の判定、なしは本日到達なら合格圏内。
+              const chip = hasDate
+                ? VERDICT_META[readiness.verdict].label
+                  ? VERDICT_META[readiness.verdict]
+                  : null
+                : nowReached
+                  ? VERDICT_META.passed
+                  : null;
+              return (
+                <div className="mb-6 rounded-xl border border-[#2a2f3f] bg-[#1a1d27] p-4">
+                  <div className="mb-3 flex items-start justify-between gap-3">
+                    <div className="min-w-0">
+                      <p className="truncate text-sm font-medium text-white">
+                        {goal?.targetName || examName}
+                      </p>
+                      <p className="text-xs text-[#555e70]">
+                        {hasDate ? `試験まで残り ${readiness.daysLeft} 日` : "試験日は未設定"}
+                      </p>
+                    </div>
+                    {chip && (
+                      <span
+                        className="shrink-0 rounded-full px-2.5 py-1 text-[11px] font-semibold"
+                        style={{ color: chip.color, background: chip.color + "22" }}
+                      >
+                        {chip.label}
+                      </span>
+                    )}
+                  </div>
+
+                  <div className="mb-1 flex items-baseline justify-between text-xs">
+                    <span className="text-[#8892a4]">
+                      本日時点の合格可能性{" "}
+                      <b className="tabular-nums text-base" style={{ color: nowColor }}>
+                        {nowPct}%
+                      </b>
+                    </span>
+                    {hasDate && (
+                      <span className="text-[#8892a4]">
+                        試験日予測{" "}
+                        <b
+                          className="tabular-nums"
+                          style={{ color: VERDICT_META[readiness.verdict].color }}
+                        >
+                          {Math.round(readiness.projectedAtExam * 100)}%
+                        </b>
+                      </span>
+                    )}
+                  </div>
+                  <div className="relative mb-1 h-2 overflow-hidden rounded-full bg-[#2a2f3f]">
+                    <div
+                      className="h-full rounded-full transition-all duration-500"
+                      style={{ width: `${nowPct}%`, background: nowColor }}
+                    />
+                    <div
+                      className="absolute -top-0.5 bottom-[-2px] w-px bg-white/70"
+                      style={{ left: `${passPct}%` }}
+                      title={`合格ライン ${passPct}%`}
+                    />
+                  </div>
+                  <p className="mb-3 text-[10px] text-[#3a4050]">白線 = 合格ライン {passPct}%</p>
+
+                  <div className="flex items-center justify-between gap-3">
+                    <p className="min-w-0 text-xs" style={{ color: nowReached ? "#22c55e" : "#8892a4" }}>
+                      {nowReached
+                        ? "本日時点で合格ラインに到達。維持しよう"
+                        : `合格ラインまで あと ${passPct - nowPct}%` +
+                          (hasDate && readiness.neededPerDayForPass > 0
+                            ? ` · 1日 ${readiness.neededPerDayForPass} 問`
+                            : "")}
+                    </p>
+                    <button
+                      onClick={() => setScreen("goal")}
+                      className="shrink-0 text-xs text-[#555e70] transition hover:text-[#8892a4]"
+                    >
+                      {hasDate ? "編集" : "試験日を設定"}
+                    </button>
+                  </div>
                 </div>
-                {VERDICT_META[readiness.verdict].label && (
-                  <span
-                    className="shrink-0 rounded-full px-2.5 py-1 text-[11px] font-semibold"
-                    style={{
-                      color: VERDICT_META[readiness.verdict].color,
-                      background: VERDICT_META[readiness.verdict].color + "22",
-                    }}
-                  >
-                    {VERDICT_META[readiness.verdict].label}
-                  </span>
-                )}
-              </div>
-
-              <div className="mb-1 flex items-baseline justify-between text-xs">
-                <span className="text-[#8892a4]">
-                  現在{" "}
-                  <b className="tabular-nums text-white">
-                    {Math.round(readiness.readinessNow * 100)}%
-                  </b>
-                </span>
-                <span className="text-[#8892a4]">
-                  試験日予測{" "}
-                  <b className="tabular-nums" style={{ color: VERDICT_META[readiness.verdict].color }}>
-                    {Math.round(readiness.projectedAtExam * 100)}%
-                  </b>
-                </span>
-              </div>
-              <div className="relative mb-1 h-2 overflow-hidden rounded-full bg-[#2a2f3f]">
-                <div
-                  className="h-full rounded-full transition-all duration-500"
-                  style={{
-                    width: `${Math.round(readiness.readinessNow * 100)}%`,
-                    background: VERDICT_META[readiness.verdict].color,
-                  }}
-                />
-                <div
-                  className="absolute -top-0.5 bottom-[-2px] w-px bg-white/70"
-                  style={{ left: `${Math.round(readiness.passLine * 100)}%` }}
-                  title={`合格ライン ${Math.round(readiness.passLine * 100)}%`}
-                />
-              </div>
-              <p className="mb-3 text-[10px] text-[#3a4050]">
-                白線 = 合格ライン {Math.round(readiness.passLine * 100)}%
-              </p>
-
-              <div className="flex items-center justify-between">
-                <p className="text-xs" style={{ color: VERDICT_META[readiness.verdict].color }}>
-                  {readiness.verdict === "passed"
-                    ? "合格ラインに到達。維持しよう"
-                    : `合格ラインまで 1日 ${readiness.neededPerDayForPass} 問`}
-                </p>
-                <button
-                  onClick={() => setScreen("goal")}
-                  className="shrink-0 text-xs text-[#555e70] transition hover:text-[#8892a4]"
-                >
-                  編集
-                </button>
-              </div>
-            </div>
-          ) : (
-            <button
-              onClick={() => setScreen("goal")}
-              className="mb-6 w-full rounded-xl border border-dashed border-[#2a2f3f] px-4 py-4 text-left transition hover:border-[#3a4050]"
-            >
-              <p className="text-sm text-[#8892a4]">試験日を設定</p>
-              <p className="text-xs text-[#555e70]">合格確率と今日のノルマを逆算します</p>
-            </button>
-          )}
+              );
+            })()}
 
           {/* 教科書リンク（試験区分ごと・クリックで外部ページへ） */}
           <section className="mb-6">
