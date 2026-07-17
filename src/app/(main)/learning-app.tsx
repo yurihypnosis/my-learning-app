@@ -960,14 +960,28 @@ export function LearningApp({
               // 合格確率の色: 高いほど緑、中位は琥珀、低位は学習中のアクセント青。
               const probColor = passProb >= 0.7 ? "#22c55e" : passProb >= 0.4 ? "#f59e0b" : "#3b82f6";
               const barColor = scoreReached ? "#22c55e" : "#3b82f6";
-              // ヘッダーのバッジ: 試験日ありは着地予測の判定、なしは合格確率が高ければ合格圏内。
-              const chip = hasDate
-                ? VERDICT_META[readiness.verdict].label
-                  ? VERDICT_META[readiness.verdict]
-                  : null
-                : passProb >= 0.7
+              // 試験日の推定得点率（＝残り日数で全範囲を仕上げた場合の見込み得点）。
+              // 触れられる割合 = (着手 + 残日×1日量)/全問。仕上げた分は skill 0.82、残りは推測床。
+              const reachCov = Math.min(
+                1,
+                (readiness.attempted + readiness.daysLeft * dailyCapacity) /
+                  Math.max(1, readiness.total)
+              );
+              const projScore = 0.82 * reachCov + 0.25 * (1 - reachCov);
+              const projScorePct = Math.round(projScore * 100);
+              const projColor =
+                projScorePct >= passPct ? "#22c55e" : projScorePct >= passPct - 8 ? "#f59e0b" : "#8892a4";
+              // ヘッダーのバッジ: 本日すでに合格圏なら合格圏内、そうでなければ試験日見込みで判定。
+              const chip =
+                passProb >= 0.7
                   ? VERDICT_META.passed
-                  : null;
+                  : hasDate
+                    ? projScore >= readiness.passLine
+                      ? VERDICT_META["on-track"]
+                      : projScore >= readiness.passLine - 0.08
+                        ? VERDICT_META.tight
+                        : VERDICT_META["at-risk"]
+                    : null;
               return (
                 <div className="mb-6 rounded-xl border border-[#2a2f3f] bg-[#1a1d27] p-4">
                   <div className="mb-3 flex items-start justify-between gap-3">
@@ -1002,13 +1016,10 @@ export function LearningApp({
                       </p>
                     </div>
                     {hasDate && (
-                      <span className="shrink-0 pb-1 text-xs text-[#8892a4]">
-                        試験日予測{" "}
-                        <b
-                          className="tabular-nums"
-                          style={{ color: VERDICT_META[readiness.verdict].color }}
-                        >
-                          {Math.round(readiness.projectedAtExam * 100)}%
+                      <span className="shrink-0 pb-1 text-right text-xs text-[#8892a4]">
+                        試験日の推定得点率<span className="text-[#3a4050]">*</span>{" "}
+                        <b className="tabular-nums" style={{ color: projColor }}>
+                          {projScorePct}%
                         </b>
                       </span>
                     )}
@@ -1032,7 +1043,7 @@ export function LearningApp({
                     <p className="min-w-0 text-xs" style={{ color: scoreReached ? "#22c55e" : "#8892a4" }}>
                       {scoreReached
                         ? "推定得点が合格ラインに到達。維持しよう"
-                        : `合格ラインまで あと ${Math.max(0, passPct - scorePct)}%` +
+                        : `推定得点をあと ${Math.max(0, passPct - scorePct)}% 上げれば合格ライン` +
                           (hasDate && readiness.neededPerDayForPass > 0
                             ? ` · 1日 ${readiness.neededPerDayForPass} 問`
                             : "")}
@@ -1044,6 +1055,11 @@ export function LearningApp({
                       {hasDate ? "編集" : "試験日を設定"}
                     </button>
                   </div>
+                  {hasDate && (
+                    <p className="mt-2 text-[10px] text-[#3a4050]">
+                      * 残り日数で全範囲をひととおり仕上げた場合の推定得点（まぐれ当たりは実力に数えません）
+                    </p>
+                  )}
                 </div>
               );
             })()}
