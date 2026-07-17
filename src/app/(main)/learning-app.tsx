@@ -35,6 +35,7 @@ import {
   type Readiness,
   type Verdict,
   computeReadiness,
+  estimatePassProbability,
   passLineFor,
   retentionEstimate,
 } from "@/lib/quiz/readiness";
@@ -534,6 +535,22 @@ export function LearningApp({
     });
   }, [examSections, progressMap, goal, now, dailyCapacity, goalExamKey]);
 
+  // 本日時点の合格確率（ポアソン二項）。試験区分の全問を per-item 正答確率にし、
+  // 未見問題は「その分野の能力」で汎化予測 → 正答数が合格ラインを超える確率。
+  const passEstimate = useMemo(() => {
+    if (now === 0 || examQuestions.length === 0) return null;
+    const items = examQuestions.map((q) => {
+      const p = getProgress(progressMap, q.id);
+      return {
+        retention: retentionEstimate(p, now),
+        guess: 1 / Math.max(2, q.options.length),
+        category: q.category_name,
+        answered: p.correct_count + p.wrong_count > 0,
+      };
+    });
+    return estimatePassProbability(items, passLineFor(goalExamKey));
+  }, [examQuestions, progressMap, now, goalExamKey]);
+
   const enterQuiz = (pool: QuizQuestion[]) => {
     if (!pool.length) return;
     setSessionStartPassProb(calcMasteryStats(questions, progressMap).passProb);
@@ -932,17 +949,23 @@ export function LearningApp({
           {readiness &&
             (() => {
               const hasDate = readiness.verdict !== "no-date";
-              const nowPct = Math.round(readiness.readinessNow * 100);
               const passPct = Math.round(readiness.passLine * 100);
-              const nowReached = readiness.readinessNow >= readiness.passLine;
-              // 本日時点の色: 合格ライン到達なら緑、未到達は学習中を示すアクセント青。
-              const nowColor = nowReached ? "#22c55e" : "#3b82f6";
-              // ヘッダーのバッジ: 試験日ありは着地予測の判定、なしは本日到達なら合格圏内。
+              // 本日時点の合格確率（ポアソン二項）と推定得点率。未計算時は定着で代替。
+              const passProb = passEstimate ? passEstimate.passProbability : readiness.readinessNow;
+              const passProbPct = Math.round(passProb * 100);
+              const scorePct = Math.round(
+                (passEstimate ? passEstimate.expectedScore : readiness.readinessNow) * 100
+              );
+              const scoreReached = scorePct >= passPct;
+              // 合格確率の色: 高いほど緑、中位は琥珀、低位は学習中のアクセント青。
+              const probColor = passProb >= 0.7 ? "#22c55e" : passProb >= 0.4 ? "#f59e0b" : "#3b82f6";
+              const barColor = scoreReached ? "#22c55e" : "#3b82f6";
+              // ヘッダーのバッジ: 試験日ありは着地予測の判定、なしは合格確率が高ければ合格圏内。
               const chip = hasDate
                 ? VERDICT_META[readiness.verdict].label
                   ? VERDICT_META[readiness.verdict]
                   : null
-                : nowReached
+                : passProb >= 0.7
                   ? VERDICT_META.passed
                   : null;
               return (
@@ -966,15 +989,20 @@ export function LearningApp({
                     )}
                   </div>
 
-                  <div className="mb-1 flex items-baseline justify-between text-xs">
-                    <span className="text-[#8892a4]">
-                      本日時点の合格可能性{" "}
-                      <b className="tabular-nums text-base" style={{ color: nowColor }}>
-                        {nowPct}%
-                      </b>
-                    </span>
+                  <div className="mb-2 flex items-end justify-between gap-3">
+                    <div className="min-w-0">
+                      <p className="text-[10px] uppercase tracking-widest text-[#555e70]">
+                        本日時点の合格確率
+                      </p>
+                      <p
+                        className="tabular-nums text-3xl font-light leading-tight"
+                        style={{ color: probColor, letterSpacing: "-.03em" }}
+                      >
+                        {passProbPct}%
+                      </p>
+                    </div>
                     {hasDate && (
-                      <span className="text-[#8892a4]">
+                      <span className="shrink-0 pb-1 text-xs text-[#8892a4]">
                         試験日予測{" "}
                         <b
                           className="tabular-nums"
@@ -988,7 +1016,7 @@ export function LearningApp({
                   <div className="relative mb-1 h-2 overflow-hidden rounded-full bg-[#2a2f3f]">
                     <div
                       className="h-full rounded-full transition-all duration-500"
-                      style={{ width: `${nowPct}%`, background: nowColor }}
+                      style={{ width: `${scorePct}%`, background: barColor }}
                     />
                     <div
                       className="absolute -top-0.5 bottom-[-2px] w-px bg-white/70"
@@ -996,13 +1024,15 @@ export function LearningApp({
                       title={`合格ライン ${passPct}%`}
                     />
                   </div>
-                  <p className="mb-3 text-[10px] text-[#3a4050]">白線 = 合格ライン {passPct}%</p>
+                  <p className="mb-3 text-[10px] text-[#3a4050]">
+                    推定得点率 {scorePct}% ／ 白線 = 合格ライン {passPct}%
+                  </p>
 
                   <div className="flex items-center justify-between gap-3">
-                    <p className="min-w-0 text-xs" style={{ color: nowReached ? "#22c55e" : "#8892a4" }}>
-                      {nowReached
-                        ? "本日時点で合格ラインに到達。維持しよう"
-                        : `合格ラインまで あと ${passPct - nowPct}%` +
+                    <p className="min-w-0 text-xs" style={{ color: scoreReached ? "#22c55e" : "#8892a4" }}>
+                      {scoreReached
+                        ? "推定得点が合格ラインに到達。維持しよう"
+                        : `合格ラインまで あと ${Math.max(0, passPct - scorePct)}%` +
                           (hasDate && readiness.neededPerDayForPass > 0
                             ? ` · 1日 ${readiness.neededPerDayForPass} 問`
                             : "")}

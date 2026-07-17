@@ -2,8 +2,13 @@ import { describe, expect, it } from "vitest";
 import {
   capacityFromDailyCounts,
   computeReadiness,
+  estimatePassProbability,
+  itemCorrectProb,
   passLineFor,
+  passProbability,
+  poissonBinomialPMF,
   retentionEstimate,
+  type AbilityItem,
 } from "./readiness";
 import { emptyProgress, type Progress } from "./types";
 
@@ -76,6 +81,70 @@ describe("computeReadiness", () => {
     });
     expect(r.readinessNow).toBeCloseTo(0.3, 6); // 40*0.75/100
     expect(r.coverage).toBeCloseTo(0.4, 6);
+  });
+});
+
+describe("itemCorrectProb", () => {
+  it("blends recall and guessing: R + (1-R)*g", () => {
+    expect(itemCorrectProb(0, 0.25)).toBeCloseTo(0.25, 6); // 未着手=推測当たり
+    expect(itemCorrectProb(1, 0.25)).toBeCloseTo(1, 6);
+    expect(itemCorrectProb(0.8, 0.25)).toBeCloseTo(0.85, 6);
+  });
+});
+
+describe("poissonBinomialPMF / passProbability", () => {
+  it("PMF sums to 1 and matches binomial when p is identical", () => {
+    const pmf = poissonBinomialPMF([0.5, 0.5, 0.5]);
+    expect(pmf.reduce((a, b) => a + b, 0)).toBeCloseTo(1, 9);
+    // Binomial(3, .5): 1/8, 3/8, 3/8, 1/8
+    expect(pmf[0]).toBeCloseTo(0.125, 9);
+    expect(pmf[2]).toBeCloseTo(0.375, 9);
+  });
+
+  it("degenerate cases", () => {
+    expect(passProbability([1, 1, 1], 3)).toBeCloseTo(1, 9);
+    expect(passProbability([0, 0, 0], 1)).toBeCloseTo(0, 9);
+    // 3問すべて 0.5、2問以上正答で合格 → 1/2
+    expect(passProbability([0.5, 0.5, 0.5], 2)).toBeCloseTo(0.5, 9);
+  });
+});
+
+describe("estimatePassProbability", () => {
+  const item = (o: Partial<AbilityItem>): AbilityItem => ({
+    retention: 0, guess: 0.25, category: "c", answered: false, ...o,
+  });
+
+  it("all mastered → near-certain pass", () => {
+    const items = Array.from({ length: 20 }, () =>
+      item({ retention: 0.95, answered: true })
+    );
+    const { passProbability: pp, expectedScore } = estimatePassProbability(items, 0.72);
+    expect(expectedScore).toBeGreaterThan(0.9);
+    expect(pp).toBeGreaterThan(0.9);
+  });
+
+  it("nothing attempted → ~guessing floor, fails a 72% line", () => {
+    const items = Array.from({ length: 20 }, () => item({}));
+    const { passProbability: pp, expectedScore } = estimatePassProbability(items, 0.72);
+    expect(expectedScore).toBeCloseTo(0.25, 6);
+    expect(pp).toBeLessThan(0.01);
+  });
+
+  it("unseen items inherit category ability (generalization, not dilution)", () => {
+    // 同じ分野で 6問正答済み(高定着)＋114問未着手。未着手は分野能力で予測される。
+    const answered = Array.from({ length: 6 }, () =>
+      item({ retention: 0.9, answered: true, category: "ml" })
+    );
+    const unseen = Array.from({ length: 114 }, () =>
+      item({ category: "ml" })
+    );
+    const withUnseen = estimatePassProbability([...answered, ...unseen], 0.6);
+    const onlyAnswered = estimatePassProbability(answered, 0.6);
+    // 未着手を大量に足しても、合格確率が推測床(0)まで薄まらない（分野能力を継承）
+    expect(withUnseen.expectedScore).toBeGreaterThan(0.5);
+    expect(withUnseen.passProbability).toBeGreaterThan(0.5);
+    // 縮約により、着手済みだけよりは控えめ
+    expect(withUnseen.expectedScore).toBeLessThan(onlyAnswered.expectedScore);
   });
 });
 

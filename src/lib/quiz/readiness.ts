@@ -52,6 +52,82 @@ export function retentionEstimate(p: Progress, nowMs: number): number {
   return attempts > 0 ? masteryFromProgress(p) : 0;
 }
 
+// ── 合格確率（ポアソン二項）────────────────────────────────────────────
+// 1問の正答確率。思い出せれば正答、思い出せなくても選択肢から当たる:
+//   P(正答) = R + (1-R)*g   （R=想起確率, g=推測当たり=1/選択肢数）
+export function itemCorrectProb(retention: number, guess: number): number {
+  const r = Math.min(1, Math.max(0, retention));
+  const g = Math.min(1, Math.max(0, guess));
+  return r + (1 - r) * g;
+}
+
+// ポアソン二項分布: 各試行の成功確率が異なる独立試行の「成功数」の分布を
+// 動的計画法で厳密に求める（O(n^2)）。dist[k] = P(成功数 = k), k=0..n。
+export function poissonBinomialPMF(probs: number[]): number[] {
+  let dist = [1];
+  for (const p of probs) {
+    const pc = Math.min(1, Math.max(0, p));
+    const next = new Array<number>(dist.length + 1).fill(0);
+    for (let k = 0; k < dist.length; k++) {
+      next[k] += dist[k] * (1 - pc);
+      next[k + 1] += dist[k] * pc;
+    }
+    dist = next;
+  }
+  return dist;
+}
+
+// 成功数（正答数）が minCorrect 以上になる確率 = 合格確率。
+export function passProbability(probs: number[], minCorrect: number): number {
+  if (probs.length === 0) return 0;
+  const pmf = poissonBinomialPMF(probs);
+  const from = Math.max(0, Math.ceil(minCorrect - 1e-9));
+  let s = 0;
+  for (let k = from; k < pmf.length; k++) s += pmf[k];
+  return Math.min(1, Math.max(0, s));
+}
+
+// 合格確率の推定に使う1問の材料。
+export interface AbilityItem {
+  retention: number; // 0..1 その問の現在の定着（未着手は 0）
+  guess: number; // 0..1 推測当たり（1/選択肢数）
+  category: string; // 分野（=セクション）。未見問題の汎化に使う
+  answered: boolean; // 1回以上解答済みか
+}
+
+// 本試験(=このプール)を今受けたときの合格確率と推定得点率を返す。
+//  - 着手済みの問: 自分の定着から P(正答)。
+//  - 未着手の問: 「その分野の能力」で予測（＝未見でも汎化）。分野の能力は
+//    着手済みの平均正答確率をベイズ縮約（少データは推測当たりへ寄せる）。
+//  - 合格確率は正答数のポアソン二項で P(正答数 ≥ 合格ライン×問題数)。
+export function estimatePassProbability(
+  items: AbilityItem[],
+  passLine: number,
+  priorStrength = 3
+): { passProbability: number; expectedScore: number } {
+  if (items.length === 0) return { passProbability: 0, expectedScore: 0 };
+  const byCat = new Map<string, { sum: number; n: number; guess: number }>();
+  for (const it of items) {
+    if (!it.answered) continue;
+    const c = byCat.get(it.category) ?? { sum: 0, n: 0, guess: it.guess };
+    c.sum += itemCorrectProb(it.retention, it.guess);
+    c.n += 1;
+    c.guess = it.guess;
+    byCat.set(it.category, c);
+  }
+  const abilityOf = (cat: string, guess: number): number => {
+    const c = byCat.get(cat);
+    if (!c || c.n === 0) return guess; // 未着手分野 → 推測当たりまで
+    return (c.sum + priorStrength * guess) / (c.n + priorStrength);
+  };
+  const probs = items.map((it) =>
+    it.answered ? itemCorrectProb(it.retention, it.guess) : abilityOf(it.category, it.guess)
+  );
+  const n = probs.length;
+  const expectedScore = probs.reduce((a, b) => a + b, 0) / n;
+  return { passProbability: passProbability(probs, passLine * n), expectedScore };
+}
+
 export type Verdict = "passed" | "on-track" | "tight" | "at-risk" | "no-date";
 
 export interface Readiness {
