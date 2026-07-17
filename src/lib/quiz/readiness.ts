@@ -87,30 +87,66 @@ export function passProbability(probs: number[], minCorrect: number): number {
   return Math.min(1, Math.max(0, s));
 }
 
-// 合格確率の推定に使う1問の材料。
-export interface AbilityItem {
-  retention: number; // 0..1 その問の現在の定着（未着手は 0）
-  guess: number; // 0..1 推測当たり（1/選択肢数）
-  category: string; // 分野（=セクション）。未見問題の汎化に使う
-  answered: boolean; // 1回以上解答済みか
+// 直近の「正誤 × 確信度」から実力（本試験の未見問題に正答できる確率）を推定。
+// まぐれ当たり（勘=確信度3の正解）は実力として高く評価しない＝推測床付近まで。
+// 未着手は null。（app の思想「まぐれ当たりは加算しない」を確率に反映）
+export function demonstratedSkill(p: Progress): number | null {
+  const attempts = p.correct_count + p.wrong_count;
+  if (attempts === 0) return null;
+  const conf = p.last_confidence; // 1=確信 / 2=迷い / 3=勘 / null
+  if (p.last_is_correct === true) {
+    return conf === 1 ? 0.95 : conf === 2 ? 0.7 : conf === 3 ? 0.35 : 0.55;
+  }
+  // 直近が誤答（または不明）
+  return conf === 1 ? 0.08 : conf === 2 ? 0.2 : conf === 3 ? 0.28 : 0.15;
 }
 
-// 本試験(=このプール)を今受けたときの合格確率と推定得点率を返す。
-//  - 着手済みの問: 自分の定着から P(正答)。
-//  - 未着手の問: 「その分野の能力」で予測（＝未見でも汎化）。分野の能力は
-//    着手済みの平均正答確率をベイズ縮約（少データは推測当たりへ寄せる）。
+// 着手済み1問の「本試験で正答する確率」。実力 × 現在の想起(FSRS) を推測床でクランプ。
+// 直後は想起≈1 だが実力(demonstratedSkill)が低ければ低いまま＝勘の直後正解でも過大にならない。
+// 時間が経てば想起が減衰し確率も下がる。未着手は null。
+export function examItemProb(p: Progress, nowMs: number, guess: number): number | null {
+  const skill = demonstratedSkill(p);
+  if (skill === null) return null;
+  let recall = 1;
+  if (p.fsrs_state === "review" && p.fsrs_last_review && (p.fsrs_stability ?? 0) > 0) {
+    recall = currentRetrievability(
+      {
+        stability: p.fsrs_stability ?? 0,
+        difficulty: p.fsrs_difficulty ?? 0,
+        reps: p.fsrs_reps ?? 0,
+        lapses: p.fsrs_lapses ?? 0,
+        lastReview: p.fsrs_last_review,
+        due: p.fsrs_due ?? null,
+        state: "review",
+      },
+      nowMs
+    );
+  }
+  return Math.min(1, Math.max(guess, skill * recall));
+}
+
+// 合格確率の推定に使う1問の材料。prob=本試験で正答する確率（未着手は null）。
+export interface ExamItem {
+  prob: number | null;
+  guess: number; // 推測当たり（1/選択肢数）
+  category: string; // 分野。未見問題の汎化に使う
+}
+
+// 本試験を今受けたときの合格確率と推定得点率。
+//  - 着手済み: examItemProb（実力×想起、確信度込み）。
+//  - 未着手: 「その分野の能力」で予測（着手済み prob の平均をベイズ縮約、推測当たりへ寄せる）。
 //  - 合格確率は正答数のポアソン二項で P(正答数 ≥ 合格ライン×問題数)。
 export function estimatePassProbability(
-  items: AbilityItem[],
+  items: ExamItem[],
   passLine: number,
   priorStrength = 3
 ): { passProbability: number; expectedScore: number } {
   if (items.length === 0) return { passProbability: 0, expectedScore: 0 };
   const byCat = new Map<string, { sum: number; n: number; guess: number }>();
   for (const it of items) {
-    if (!it.answered) continue;
+    if (it.prob === null) continue;
     const c = byCat.get(it.category) ?? { sum: 0, n: 0, guess: it.guess };
-    c.sum += itemCorrectProb(it.retention, it.guess);
+    c.sum += it.prob;
     c.n += 1;
     c.guess = it.guess;
     byCat.set(it.category, c);
@@ -120,9 +156,7 @@ export function estimatePassProbability(
     if (!c || c.n === 0) return guess; // 未着手分野 → 推測当たりまで
     return (c.sum + priorStrength * guess) / (c.n + priorStrength);
   };
-  const probs = items.map((it) =>
-    it.answered ? itemCorrectProb(it.retention, it.guess) : abilityOf(it.category, it.guess)
-  );
+  const probs = items.map((it) => it.prob ?? abilityOf(it.category, it.guess));
   const n = probs.length;
   const expectedScore = probs.reduce((a, b) => a + b, 0) / n;
   return { passProbability: passProbability(probs, passLine * n), expectedScore };

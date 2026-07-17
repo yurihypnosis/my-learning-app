@@ -2,13 +2,15 @@ import { describe, expect, it } from "vitest";
 import {
   capacityFromDailyCounts,
   computeReadiness,
+  demonstratedSkill,
   estimatePassProbability,
+  examItemProb,
   itemCorrectProb,
   passLineFor,
   passProbability,
   poissonBinomialPMF,
   retentionEstimate,
-  type AbilityItem,
+  type ExamItem,
 } from "./readiness";
 import { emptyProgress, type Progress } from "./types";
 
@@ -109,15 +111,38 @@ describe("poissonBinomialPMF / passProbability", () => {
   });
 });
 
+describe("demonstratedSkill", () => {
+  const P = (o: Partial<Progress>): Progress => ({ ...emptyProgress("q"), ...o });
+  it("prices confidence: sure-correct high, guessed-correct near the floor", () => {
+    expect(demonstratedSkill(P({ correct_count: 1, last_is_correct: true, last_confidence: 1 }))).toBe(0.95);
+    expect(demonstratedSkill(P({ correct_count: 1, last_is_correct: true, last_confidence: 3 }))).toBe(0.35);
+    expect(demonstratedSkill(P({ wrong_count: 1, last_is_correct: false, last_confidence: 1 }))).toBe(0.08);
+    expect(demonstratedSkill(P({}))).toBeNull(); // 未着手
+  });
+});
+
+describe("examItemProb", () => {
+  const NOW = Date.parse("2026-07-17T00:00:00Z");
+  it("a lucky guess just answered is NOT treated as mastery", () => {
+    // 勘で正解・今さっき解答(想起≈1・stability小)。実力どまりで高くならない。
+    const p: Progress = {
+      ...emptyProgress("q"), correct_count: 1, last_is_correct: true, last_confidence: 3,
+      fsrs_state: "review", fsrs_stability: 0.7,
+      fsrs_last_review: new Date(NOW).toISOString(),
+    };
+    const prob = examItemProb(p, NOW, 0.25)!;
+    expect(prob).toBeGreaterThanOrEqual(0.25); // 推測床は下回らない
+    expect(prob).toBeLessThan(0.45); // だが実力(0.35)どまり、1にならない
+  });
+});
+
 describe("estimatePassProbability", () => {
-  const item = (o: Partial<AbilityItem>): AbilityItem => ({
-    retention: 0, guess: 0.25, category: "c", answered: false, ...o,
+  const item = (o: Partial<ExamItem>): ExamItem => ({
+    prob: null, guess: 0.25, category: "c", ...o,
   });
 
   it("all mastered → near-certain pass", () => {
-    const items = Array.from({ length: 20 }, () =>
-      item({ retention: 0.95, answered: true })
-    );
+    const items = Array.from({ length: 20 }, () => item({ prob: 0.95 }));
     const { passProbability: pp, expectedScore } = estimatePassProbability(items, 0.72);
     expect(expectedScore).toBeGreaterThan(0.9);
     expect(pp).toBeGreaterThan(0.9);
@@ -130,20 +155,20 @@ describe("estimatePassProbability", () => {
     expect(pp).toBeLessThan(0.01);
   });
 
+  it("mostly lucky guesses → low pass probability (not 100%)", () => {
+    // 20問: 実力0.35(勘正解)相当。合格ライン0.72 → 期待得点が届かず合格確率は低い。
+    const items = Array.from({ length: 20 }, () => item({ prob: 0.35 }));
+    const { passProbability: pp } = estimatePassProbability(items, 0.72);
+    expect(pp).toBeLessThan(0.05);
+  });
+
   it("unseen items inherit category ability (generalization, not dilution)", () => {
-    // 同じ分野で 6問正答済み(高定着)＋114問未着手。未着手は分野能力で予測される。
-    const answered = Array.from({ length: 6 }, () =>
-      item({ retention: 0.9, answered: true, category: "ml" })
-    );
-    const unseen = Array.from({ length: 114 }, () =>
-      item({ category: "ml" })
-    );
+    const answered = Array.from({ length: 6 }, () => item({ prob: 0.9, category: "ml" }));
+    const unseen = Array.from({ length: 114 }, () => item({ category: "ml" }));
     const withUnseen = estimatePassProbability([...answered, ...unseen], 0.6);
     const onlyAnswered = estimatePassProbability(answered, 0.6);
-    // 未着手を大量に足しても、合格確率が推測床(0)まで薄まらない（分野能力を継承）
     expect(withUnseen.expectedScore).toBeGreaterThan(0.5);
     expect(withUnseen.passProbability).toBeGreaterThan(0.5);
-    // 縮約により、着手済みだけよりは控えめ
     expect(withUnseen.expectedScore).toBeLessThan(onlyAnswered.expectedScore);
   });
 });

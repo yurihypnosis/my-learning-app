@@ -36,6 +36,7 @@ import {
   type Verdict,
   computeReadiness,
   estimatePassProbability,
+  examItemProb,
   passLineFor,
   retentionEstimate,
 } from "@/lib/quiz/readiness";
@@ -540,12 +541,11 @@ export function LearningApp({
   const passEstimate = useMemo(() => {
     if (now === 0 || examQuestions.length === 0) return null;
     const items = examQuestions.map((q) => {
-      const p = getProgress(progressMap, q.id);
+      const guess = 1 / Math.max(2, q.options.length);
       return {
-        retention: retentionEstimate(p, now),
-        guess: 1 / Math.max(2, q.options.length),
+        prob: examItemProb(getProgress(progressMap, q.id), now, guess),
+        guess,
         category: q.category_name,
-        answered: p.correct_count + p.wrong_count > 0,
       };
     });
     return estimatePassProbability(items, passLineFor(goalExamKey));
