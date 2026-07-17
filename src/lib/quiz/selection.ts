@@ -108,17 +108,19 @@ export function shuffleOptions(q: QuizQuestion): QuizQuestion {
   };
 }
 
-// 出題対象（分野で絞り、休眠を除外）
+// 出題対象（分野で絞り、休眠を除外）。
+// includeResting=true のときは休眠中も含める（「復習したい時に出せない」を避ける手動オプション）。
 export function eligibleQuestions(
   questions: QuizQuestion[],
   progressMap: ProgressMap,
   selectedCategoryIds: Set<string>,
-  now: number
+  now: number,
+  includeResting = false
 ): QuizQuestion[] {
   return questions.filter(
     (q) =>
       selectedCategoryIds.has(q.category_id) &&
-      !isResting(getProgress(progressMap, q.id), now)
+      (includeResting || !isResting(getProgress(progressMap, q.id), now))
   );
 }
 
@@ -129,6 +131,8 @@ export interface BuildDeckArgs {
   count: number;
   mode: QuizMode;
   now: number;
+  // true なら休眠中の問題も出題対象に含める（手動復習用）。
+  includeResting?: boolean;
 }
 
 // 出題デッキを生成
@@ -139,8 +143,9 @@ export function buildDeck({
   count,
   mode,
   now,
+  includeResting = false,
 }: BuildDeckArgs): QuizQuestion[] {
-  const pool = eligibleQuestions(questions, progressMap, selectedCategoryIds, now);
+  const pool = eligibleQuestions(questions, progressMap, selectedCategoryIds, now, includeResting);
 
   if (mode === "priority") {
     const sorted = [...pool].sort((a, b) => {

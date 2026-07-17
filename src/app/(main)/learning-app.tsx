@@ -313,6 +313,8 @@ export function LearningApp({
   const [count, setCount] = useState(10);
   const [mode, setMode] = useState<QuizMode>("shuffle");
   const [recallMode, setRecallMode] = useState(false);
+  // 休眠中（復習日がまだ来ていない）の問題も出題対象に含めるか。手動復習用。
+  const [includeResting, setIncludeResting] = useState(false);
   const [deck, setDeck] = useState<QuizQuestion[]>([]);
   const [idx, setIdx] = useState(0);
 
@@ -492,7 +494,12 @@ export function LearningApp({
   );
 
   const eligible = useMemo(
-    () => eligibleQuestions(questions, progressMap, selCats, now),
+    () => eligibleQuestions(questions, progressMap, selCats, now, includeResting),
+    [questions, progressMap, selCats, now, includeResting]
+  );
+  // 休眠を無視した出題対象。全問休眠でスタートが空のとき、脱出口を出すかの判定に使う。
+  const eligibleWithResting = useMemo(
+    () => eligibleQuestions(questions, progressMap, selCats, now, true),
     [questions, progressMap, selCats, now]
   );
 
@@ -543,8 +550,19 @@ export function LearningApp({
     setScreen("quiz");
   };
 
-  const startQuiz = () => {
-    enterQuiz(buildDeck({ questions, progressMap, selectedCategoryIds: selCats, count, mode, now }));
+  // force=true で休眠中も含める（全問休眠時の脱出口・トグルの両方から使う）。
+  const startQuiz = (force = false) => {
+    enterQuiz(
+      buildDeck({
+        questions,
+        progressMap,
+        selectedCategoryIds: selCats,
+        count,
+        mode,
+        now,
+        includeResting: force || includeResting,
+      })
+    );
   };
 
   // 苦手問題など、指定した問題だけを復習するセッションを開始（選択肢はシャッフル）
@@ -1214,16 +1232,37 @@ export function LearningApp({
           </div>
 
           {/* Start CTA */}
-          <button
-            onClick={startQuiz}
-            disabled={!eligible.length}
-            className="mb-6 w-full rounded-xl bg-[#3b82f6] py-4 text-sm font-semibold text-white transition hover:bg-[#60a5fa] disabled:bg-[#141720] disabled:text-[#555e70]"
-          >
-            スタート — {Math.min(count, eligible.length)} 問
-          </button>
+          {eligible.length > 0 ? (
+            <button
+              onClick={() => startQuiz()}
+              className="mb-6 w-full rounded-xl bg-[#3b82f6] py-4 text-sm font-semibold text-white transition hover:bg-[#60a5fa]"
+            >
+              スタート — {Math.min(count, eligible.length)} 問
+            </button>
+          ) : eligibleWithResting.length > 0 ? (
+            // 全問休眠でも「今すぐ復習したい」に応える脱出口。休眠を無視して出題する。
+            <div className="mb-6">
+              <button
+                onClick={() => startQuiz(true)}
+                className="w-full rounded-xl bg-[#3b82f6] py-4 text-sm font-semibold text-white transition hover:bg-[#60a5fa]"
+              >
+                休眠中も含めて復習 — {Math.min(count, eligibleWithResting.length)} 問
+              </button>
+              <p className="mt-1.5 text-center text-xs text-[#555e70]">
+                いまは全問が休眠中（復習日は先）。それでも復習できます
+              </p>
+            </div>
+          ) : (
+            <button
+              disabled
+              className="mb-6 w-full rounded-xl bg-[#141720] py-4 text-sm font-semibold text-[#555e70]"
+            >
+              この分野に出題できる問題がありません
+            </button>
+          )}
 
           {/* Advanced settings */}
-          <details className="mb-6 group" open={mode === "priority" || recallMode}>
+          <details className="mb-6 group" open={mode === "priority" || recallMode || includeResting}>
             <summary className="mb-3 cursor-pointer list-none text-xs text-[#555e70] transition hover:text-[#8892a4] group-open:text-[#8892a4]">
               詳細設定
             </summary>
@@ -1279,6 +1318,23 @@ export function LearningApp({
                   <span
                     className="absolute top-1 h-4 w-4 rounded-full bg-white shadow transition-all"
                     style={{ left: recallMode ? "calc(100% - 20px)" : "4px" }}
+                  />
+                </button>
+              </div>
+
+              <div className="flex items-center justify-between rounded-xl border border-[#2a2f3f] px-4 py-3">
+                <div>
+                  <p className="text-sm text-[#c0c8d8]">休眠中も出す</p>
+                  <p className="text-xs text-[#555e70]">復習日が来ていない問題も出題する</p>
+                </div>
+                <button
+                  onClick={() => setIncludeResting((v) => !v)}
+                  className="relative h-6 w-11 shrink-0 rounded-full transition-colors"
+                  style={{ background: includeResting ? "#3b82f6" : "#2a2f3f" }}
+                >
+                  <span
+                    className="absolute top-1 h-4 w-4 rounded-full bg-white shadow transition-all"
+                    style={{ left: includeResting ? "calc(100% - 20px)" : "4px" }}
                   />
                 </button>
               </div>
