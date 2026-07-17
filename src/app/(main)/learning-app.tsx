@@ -93,7 +93,7 @@ function fsrsFields(
 }
 
 type Screen = "menu" | "quiz" | "done" | "analysis" | "export" | "goal";
-type SessionResult = { correct: boolean; category: string; color: string };
+type SessionResult = { id: string; correct: boolean; confidence: number | null; category: string; color: string };
 // クイズ中の1問ごとの解答状態スナップショット（前後移動時の復元用）
 type QState = {
   picked: number | null;
@@ -611,7 +611,7 @@ export function LearningApp({
         ? { correct_count: cur.correct_count + 1, consecutive_correct: magure ? 0 : cur.consecutive_correct + 1, last_is_correct: true, last_answered_at: new Date().toISOString(), last_confidence: confidence }
         : { wrong_count: cur.wrong_count + 1, consecutive_correct: 0, last_is_correct: false, last_answered_at: new Date().toISOString(), last_confidence: confidence };
       const partial: Partial<Progress> = { ...base, ...fsrsFields(cur, isCorrect, confidence, Date.now()) };
-      setSessionResults((r) => [...r, { correct: isCorrect, category: q.category_name, color: q.category_color }]);
+      setSessionResults((r) => [...r, { id: q.id, correct: isCorrect, confidence, category: q.category_name, color: q.category_color }]);
       persist(q.id, partial);
       recordAnswer(q, isCorrect, confidence);
     } else {
@@ -626,7 +626,7 @@ export function LearningApp({
         ? { correct_count: cur.correct_count + 1, consecutive_correct: magure ? 0 : cur.consecutive_correct + 1, last_is_correct: true, last_selected_index: selectedOrig, last_answered_at: new Date().toISOString(), last_confidence: confidence }
         : { wrong_count: cur.wrong_count + 1, consecutive_correct: 0, last_is_correct: false, last_selected_index: selectedOrig, last_answered_at: new Date().toISOString(), last_confidence: confidence };
       const partial: Partial<Progress> = { ...base, ...fsrsFields(cur, isCorrect, confidence, Date.now()) };
-      setSessionResults((r) => [...r, { correct: isCorrect, category: q.category_name, color: q.category_color }]);
+      setSessionResults((r) => [...r, { id: q.id, correct: isCorrect, confidence, category: q.category_name, color: q.category_color }]);
       persist(q.id, partial);
       recordAnswer(q, isCorrect, confidence);
     }
@@ -1911,20 +1911,53 @@ export function LearningApp({
             </div>
           )}
 
-          <div className="flex gap-2">
-            <button
-              onClick={() => setScreen("analysis")}
-              className="flex-1 rounded-xl border border-[#2a2f3f] py-3 text-sm text-[#8892a4] transition hover:border-[#3a4050] hover:text-[#c0c8d8]"
-            >
-              分析
-            </button>
-            <button
-              onClick={() => setScreen("menu")}
-              className="flex-1 rounded-xl bg-[#3b82f6] py-3 text-sm font-medium text-white transition hover:bg-[#60a5fa]"
-            >
-              メニュー
-            </button>
-          </div>
+          {/* 周回導線: このセッションの「間違い＋勘」をすぐ再挑戦 → 続けて苦手を回す */}
+          {(() => {
+            const againIds = new Set(
+              sessionResults.filter((r) => !r.correct || r.confidence === 3).map((r) => r.id)
+            );
+            const again = deck.filter((qq) => againIds.has(qq.id));
+            const nextWeak = examWeakPool.slice(0, WEAK_SESSION_MAX);
+            return (
+              <div className="space-y-2">
+                {again.length > 0 && (
+                  <button
+                    onClick={() => startReview(again)}
+                    className="w-full rounded-xl bg-[#3b82f6] py-3.5 text-sm font-semibold text-white transition hover:bg-[#60a5fa]"
+                  >
+                    間違い・勘の {again.length}問 をもう一周
+                  </button>
+                )}
+                {nextWeak.length > 0 && (
+                  <button
+                    onClick={() => startReview(nextWeak)}
+                    className="w-full rounded-xl border border-[#2a2f3f] py-3 text-sm text-[#c0c8d8] transition hover:border-[#3a4050]"
+                  >
+                    {again.length > 0 ? "続けて苦手を" : "苦手をもう一周 "}
+                    {Math.min(WEAK_SESSION_MAX, examWeakPool.length)}問
+                  </button>
+                )}
+                <div className="flex gap-2 pt-1">
+                  <button
+                    onClick={() => setScreen("analysis")}
+                    className="flex-1 rounded-xl border border-[#2a2f3f] py-2.5 text-xs text-[#8892a4] transition hover:border-[#3a4050] hover:text-[#c0c8d8]"
+                  >
+                    分析
+                  </button>
+                  <button
+                    onClick={() => setScreen("menu")}
+                    className={
+                      again.length === 0 && nextWeak.length === 0
+                        ? "flex-1 rounded-xl bg-[#3b82f6] py-2.5 text-xs font-medium text-white transition hover:bg-[#60a5fa]"
+                        : "flex-1 rounded-xl border border-[#2a2f3f] py-2.5 text-xs text-[#8892a4] transition hover:border-[#3a4050] hover:text-[#c0c8d8]"
+                    }
+                  >
+                    メニュー
+                  </button>
+                </div>
+              </div>
+            );
+          })()}
         </div>
       </div>
     );
