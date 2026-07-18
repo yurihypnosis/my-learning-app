@@ -1400,6 +1400,7 @@ export function LearningApp({
           {/* Nav grid */}
           <div className="grid grid-cols-2 gap-2">
             {[
+              { label: "単語カード",   action: () => router.push("/flashcards") },
               { label: "ロードマップ", action: () => router.push("/roadmap") },
               { label: "学習ログ",     action: () => router.push("/log") },
               { label: "思考フレーム", action: () => router.push("/mindset") },
