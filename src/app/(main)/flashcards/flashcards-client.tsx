@@ -292,17 +292,19 @@ export function FlashcardsClient() {
           <button
             onClick={() => !flipped && flip()}
             aria-label={flipped ? "答え" : "タップして意味を確認"}
-            className="relative block min-h-[340px] w-full text-left transition-transform duration-500 motion-reduce:transition-none"
+            className="grid w-full text-left transition-transform duration-500 motion-reduce:transition-none"
             style={{
               transformStyle: "preserve-3d",
               transform: flipped ? "rotateY(180deg)" : "none",
               cursor: flipped ? "default" : "pointer",
             }}
           >
+            {/* 2面をグリッドの同一セルに重ね、背の高い面がカード高を決める。
+                こうすると「正確な定義」を開いてもカードが伸びて全文が読める。 */}
             {/* front */}
             <div
-              className="absolute inset-0 flex flex-col rounded-[20px] border border-[#2a2f3f] bg-[#1a1d27] px-8 py-8"
-              style={{ backfaceVisibility: "hidden" }}
+              className="flex min-h-[340px] flex-col rounded-[20px] border border-[#2a2f3f] bg-[#1a1d27] px-8 py-8"
+              style={{ backfaceVisibility: "hidden", gridArea: "1 / 1" }}
             >
               <span
                 className="text-[10px] font-semibold uppercase tracking-[0.16em]"
@@ -326,10 +328,11 @@ export function FlashcardsClient() {
 
             {/* back — やさしく一言を先頭に */}
             <div
-              className="absolute inset-0 flex flex-col overflow-hidden rounded-[20px] border border-[#2a2f3f] bg-[#141720] px-8 py-8"
+              className="flex min-h-[340px] flex-col rounded-[20px] border border-[#2a2f3f] bg-[#141720] px-8 py-8"
               style={{
                 backfaceVisibility: "hidden",
                 transform: "rotateY(180deg)",
+                gridArea: "1 / 1",
               }}
             >
               <span className="text-[10px] font-semibold uppercase tracking-[0.16em] text-[#555e70]">
