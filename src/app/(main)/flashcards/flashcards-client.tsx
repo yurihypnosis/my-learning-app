@@ -128,6 +128,32 @@ export function FlashcardsClient() {
     return (
       <div className={wrap}>
         <div className={container}>
+          {/* デッキ（試験区分）切替。デッキが1つのときは出さない。 */}
+          {FLASHCARD_DECKS.length > 1 && (
+            <div className="mb-6 flex flex-wrap gap-1.5">
+              {FLASHCARD_DECKS.map((d) => {
+                const on = d.key === deck.key;
+                return (
+                  <button
+                    key={d.key}
+                    onClick={() => {
+                      setDeck(d);
+                      setSelCat(null);
+                    }}
+                    className="rounded-full border px-3 py-1.5 text-xs transition"
+                    style={{
+                      borderColor: on ? "#3b82f6" : "#2a2f3f",
+                      color: on ? "#60a5fa" : "#555e70",
+                      background: on ? "#0d1f3c" : "transparent",
+                    }}
+                  >
+                    {d.name}
+                  </button>
+                );
+              })}
+            </div>
+          )}
+
           <div className="mb-8 flex items-start justify-between">
             <div>
               <h1 className="text-base font-semibold text-white">単語カード</h1>
