@@ -19,6 +19,19 @@ function shuffled<T>(arr: T[]): T[] {
   return a;
 }
 
+// ── 学習進捗の永続化（端末ローカル）──
+// まず新テーブルを作らず localStorage に持つ。用語ごとに直近の自己採点だけ見て
+// 「定着 / あやしい / 未学習」に振り分ける。将来 user_term_progress + FSRS へ移せる。
+const PKEY = "flashcards.progress.v1";
+type TermStat = { r: "k" | "w"; k: number; w: number; t: number };
+type DeckProgress = Record<string, TermStat>;
+type Store = Record<string, DeckProgress>;
+type Status = "mastered" | "weak" | "new";
+type Scope = "all" | "weak" | "new";
+
+const MASTERED = "#6ab08d"; // 定着（落ち着いた緑）
+const WEAK = "#d0a45c"; // あやしい（琥珀）
+
 type Phase = "setup" | "session" | "done";
 
 const wrap = "flex flex-col items-center px-4 pb-28 pt-8";
@@ -27,14 +40,44 @@ const lbl =
   "text-[10px] font-semibold uppercase tracking-[0.18em] text-[#555e70]";
 
 export function FlashcardsClient() {
-  // いまは G検定デッキのみ。将来 examGroupKey で複数デッキを切り替える。
   const [deck, setDeck] = useState<FlashDeck>(FLASHCARD_DECKS[0]);
-
   const [phase, setPhase] = useState<Phase>("setup");
 
   // ── setup 状態 ──
   const [selCat, setSelCat] = useState<string | null>(null); // null=全分野
+  const [scope, setScope] = useState<Scope>("all");
   const [count, setCount] = useState<number>(20);
+
+  // ── 永続進捗 ──
+  const [store, setStore] = useState<Store>({});
+  useEffect(() => {
+    try {
+      const raw = localStorage.getItem(PKEY);
+      if (raw) setStore(JSON.parse(raw) as Store);
+    } catch {
+      /* 壊れた保存は無視 */
+    }
+  }, []);
+
+  const record = useCallback((deckKey: string, term: string, ok: boolean) => {
+    setStore((prev) => {
+      const dp: DeckProgress = { ...(prev[deckKey] ?? {}) };
+      const cur = dp[term] ?? { r: "w" as const, k: 0, w: 0, t: 0 };
+      dp[term] = {
+        r: ok ? "k" : "w",
+        k: cur.k + (ok ? 1 : 0),
+        w: cur.w + (ok ? 0 : 1),
+        t: Date.now(),
+      };
+      const next = { ...prev, [deckKey]: dp };
+      try {
+        localStorage.setItem(PKEY, JSON.stringify(next));
+      } catch {
+        /* 保存不可でもセッションは続行 */
+      }
+      return next;
+    });
+  }, []);
 
   // ── session 状態 ──
   const [queue, setQueue] = useState<FlashCard[]>([]);
@@ -43,6 +86,16 @@ export function FlashcardsClient() {
   const [showPrecise, setShowPrecise] = useState(false);
   const [known, setKnown] = useState(0);
   const [weakCards, setWeakCards] = useState<FlashCard[]>([]);
+  const [masteredAtStart, setMasteredAtStart] = useState(0);
+
+  const deckProg = store[deck.key] ?? {};
+  const statusOf = useCallback(
+    (term: string): Status => {
+      const s = deckProg[term];
+      return !s ? "new" : s.r === "k" ? "mastered" : "weak";
+    },
+    [deckProg]
+  );
 
   const cats = useMemo(() => {
     const seen = new Set<string>();
@@ -61,13 +114,33 @@ export function FlashcardsClient() {
     [deck]
   );
 
-  const pool = useMemo(
+  // 現在の分野フィルタを反映したカード集合。範囲(scope)と進捗の数はこれを基準にする。
+  const catCards = useMemo(
     () => (selCat ? deck.cards.filter((c) => c.cat === selCat) : deck.cards),
     [deck, selCat]
   );
 
+  const counts = useMemo(() => {
+    let mastered = 0,
+      weak = 0,
+      neu = 0;
+    for (const c of catCards) {
+      const st = statusOf(c.term);
+      if (st === "mastered") mastered++;
+      else if (st === "weak") weak++;
+      else neu++;
+    }
+    return { mastered, weak, new: neu, total: catCards.length };
+  }, [catCards, statusOf]);
+
+  const pool = useMemo(() => {
+    if (scope === "weak") return catCards.filter((c) => statusOf(c.term) === "weak");
+    if (scope === "new") return catCards.filter((c) => statusOf(c.term) === "new");
+    return catCards;
+  }, [catCards, scope, statusOf]);
+
   const start = useCallback(
-    (cards: FlashCard[], n: number) => {
+    (cards: FlashCard[], n: number, masteredNow: number) => {
       const take = n <= 0 ? cards.length : Math.min(n, cards.length);
       setQueue(shuffled(cards).slice(0, take));
       setIdx(0);
@@ -75,6 +148,7 @@ export function FlashcardsClient() {
       setShowPrecise(false);
       setKnown(0);
       setWeakCards([]);
+      setMasteredAtStart(masteredNow);
       setPhase("session");
     },
     []
@@ -90,6 +164,7 @@ export function FlashcardsClient() {
   const grade = useCallback(
     (ok: boolean) => {
       const card = queue[idx];
+      record(deck.key, card.term, ok); // 進捗を永続化
       if (ok) setKnown((k) => k + 1);
       else setWeakCards((w) => [...w, card]);
       const next = idx + 1;
@@ -101,7 +176,7 @@ export function FlashcardsClient() {
         setShowPrecise(false);
       }
     },
-    [queue, idx]
+    [queue, idx, record, deck.key]
   );
 
   // キーボード操作: Space=めくる, 1=あやしい, 2=覚えていた
@@ -121,14 +196,17 @@ export function FlashcardsClient() {
     return () => window.removeEventListener("keydown", onKey);
   }, [phase, flipped, flip, grade]);
 
+  const scopeLabel = scope === "weak" ? "苦手" : scope === "new" ? "未学習" : "全部";
+
   // ───────────────────────── setup ─────────────────────────
   if (phase === "setup") {
-    const total = pool.length;
-    const startN = count <= 0 ? total : Math.min(count, total);
+    const startN = count <= 0 ? pool.length : Math.min(count, pool.length);
+    const studied = counts.mastered + counts.weak;
+    const pct = (v: number) => (counts.total ? (v / counts.total) * 100 : 0);
     return (
       <div className={wrap}>
         <div className={container}>
-          {/* デッキ（試験区分）切替。デッキが1つのときは出さない。 */}
+          {/* デッキ（試験区分）切替 */}
           {FLASHCARD_DECKS.length > 1 && (
             <div className="mb-6 flex flex-wrap gap-1.5">
               {FLASHCARD_DECKS.map((d) => {
@@ -139,6 +217,7 @@ export function FlashcardsClient() {
                     onClick={() => {
                       setDeck(d);
                       setSelCat(null);
+                      setScope("all");
                     }}
                     className="rounded-full border px-3 py-1.5 text-xs transition"
                     style={{
@@ -167,6 +246,81 @@ export function FlashcardsClient() {
             >
               ← 戻る
             </Link>
+          </div>
+
+          {/* 学習の定着（進捗の主役） */}
+          <div className="mb-8">
+            <p className={`mb-3 ${lbl}`}>
+              学習の定着{selCat ? `（${selCat}）` : ""}
+            </p>
+            <div className="flex items-baseline justify-between">
+              <div className="flex items-baseline gap-2">
+                <span className="text-[40px] font-extralight leading-none tracking-[-0.03em] tabular-nums text-[#e8eaf0]">
+                  {counts.mastered}
+                </span>
+                <span className="text-sm text-[#555e70]">
+                  / {counts.total} 定着
+                </span>
+              </div>
+              <div className="text-right text-[11px] tabular-nums">
+                <span style={{ color: WEAK }}>あやしい {counts.weak}</span>
+                <span className="text-[#3a4050]"> · </span>
+                <span className="text-[#555e70]">未学習 {counts.new}</span>
+              </div>
+            </div>
+            {/* 細い3分割バー */}
+            <div className="mt-3 flex h-1 overflow-hidden rounded-full bg-[#161922]">
+              <div
+                style={{ width: `${pct(counts.mastered)}%`, background: MASTERED }}
+                className="h-full transition-[width] duration-500 motion-reduce:transition-none"
+              />
+              <div
+                style={{ width: `${pct(counts.weak)}%`, background: WEAK }}
+                className="h-full transition-[width] duration-500 motion-reduce:transition-none"
+              />
+            </div>
+            {studied === 0 && (
+              <p className="mt-2 text-[11px] text-[#555e70]">
+                カードをめくって「覚えていた / あやしい」で答えると、ここに定着が積み上がります
+              </p>
+            )}
+          </div>
+
+          {/* 出す範囲 */}
+          <div className="mb-6">
+            <p className={`mb-3 ${lbl}`}>出す範囲</p>
+            <div className="flex overflow-hidden rounded-xl border border-[#2a2f3f]">
+              {(
+                [
+                  ["all", "全部", counts.total],
+                  ["weak", "苦手", counts.weak],
+                  ["new", "未学習", counts.new],
+                ] as const
+              ).map(([key, label, n], i) => {
+                const on = scope === key;
+                const disabled = n === 0 && key !== "all";
+                const accent =
+                  key === "weak" ? WEAK : key === "new" ? "#8892a4" : "#60a5fa";
+                return (
+                  <button
+                    key={key}
+                    onClick={() => !disabled && setScope(key)}
+                    disabled={disabled}
+                    className="flex-1 py-2.5 text-sm transition disabled:opacity-40"
+                    style={{
+                      borderRight: i < 2 ? "1px solid #2a2f3f" : "none",
+                      background: on ? "#0d1f3c" : "transparent",
+                      color: on ? accent : "#8892a4",
+                    }}
+                  >
+                    {label}
+                    <span className="ml-1 text-[11px] opacity-60 tabular-nums">
+                      {n}
+                    </span>
+                  </button>
+                );
+              })}
+            </div>
           </div>
 
           {/* 分野 */}
@@ -218,11 +372,15 @@ export function FlashcardsClient() {
           </div>
 
           <button
-            onClick={() => start(pool, count)}
-            disabled={total === 0}
+            onClick={() => start(pool, count, counts.mastered)}
+            disabled={pool.length === 0}
             className="w-full rounded-xl bg-[#3b82f6] py-4 text-sm font-semibold text-white transition hover:bg-[#60a5fa] disabled:bg-[#141720] disabled:text-[#555e70]"
           >
-            はじめる — {startN} 枚
+            {pool.length === 0
+              ? scope === "weak"
+                ? "苦手な語はありません"
+                : "出せる語がありません"
+              : `はじめる — ${scopeLabel} ${startN} 枚`}
           </button>
           <p className="mt-2.5 text-center text-xs text-[#555e70]">
             用語を見て意味を思い出す → タップで答え合わせ
@@ -236,26 +394,32 @@ export function FlashcardsClient() {
   if (phase === "done") {
     const weak = weakCards.length;
     const total = queue.length;
+    const gained = Math.max(0, counts.mastered - masteredAtStart);
     return (
       <div className={wrap}>
         <div className={container}>
           <div className="pt-6 text-center">
-            <p className={`mb-4 ${lbl}`}>今回のセッション</p>
+            <p className={`mb-4 ${lbl}`}>学習の定着{selCat ? `（${selCat}）` : ""}</p>
             <div className="text-[52px] font-extralight leading-none tracking-[-0.03em] tabular-nums text-[#e8eaf0]">
-              {known}
-              <span className="font-thin text-[#555e70]"> / {total}</span>
+              {counts.mastered}
+              <span className="font-thin text-[#555e70]"> / {counts.total}</span>
             </div>
-            <p className="mt-1.5 text-xs text-[#555e70]">語 覚えていた</p>
+            <p className="mt-2 text-xs text-[#555e70]">
+              語 定着
+              {gained > 0 && (
+                <span style={{ color: MASTERED }}> ・ 今回 +{gained}</span>
+              )}
+            </p>
 
             <div className="my-8 flex justify-center gap-8">
               <div className="text-center">
-                <div className="text-2xl font-light tabular-nums text-[#6ab08d]">
+                <div className="text-2xl font-light tabular-nums" style={{ color: MASTERED }}>
                   {known}
                 </div>
                 <div className="mt-1 text-[11px] text-[#555e70]">覚えていた</div>
               </div>
               <div className="text-center">
-                <div className="text-2xl font-light tabular-nums text-[#d0a45c]">
+                <div className="text-2xl font-light tabular-nums" style={{ color: WEAK }}>
                   {weak}
                 </div>
                 <div className="mt-1 text-[11px] text-[#555e70]">あやしい</div>
@@ -272,6 +436,7 @@ export function FlashcardsClient() {
                   setShowPrecise(false);
                   setKnown(0);
                   setWeakCards([]);
+                  setMasteredAtStart(counts.mastered);
                   setPhase("session");
                 }}
                 className="w-full rounded-xl bg-[#3b82f6] py-4 text-sm font-semibold text-white transition hover:bg-[#60a5fa]"
@@ -310,7 +475,9 @@ export function FlashcardsClient() {
           <span className="tabular-nums">
             {idx + 1} / {queue.length}
           </span>
-          <span>{selCat ?? "全分野"}・シャッフル</span>
+          <span>
+            {scopeLabel}・{selCat ?? "全分野"}
+          </span>
         </div>
 
         {/* カード（3Dフリップ） */}
@@ -339,7 +506,7 @@ export function FlashcardsClient() {
                 {card.cat}
               </span>
               <span
-                className="my-auto font-extralight leading-tight tracking-[-0.02em] text-[#e8eaf0] text-wrap-balance"
+                className="my-auto font-extralight leading-tight tracking-[-0.02em] text-[#e8eaf0]"
                 style={{
                   fontSize: card.term.length > 8 ? "29px" : "38px",
                   textWrap: "balance",
@@ -367,11 +534,17 @@ export function FlashcardsClient() {
               <span className="mb-5 mt-3.5 text-[15px] font-semibold text-[#e8eaf0]">
                 {card.term}
               </span>
-              <p className="text-[19px] font-normal leading-[1.7] tracking-[-0.01em] text-[#e8eaf0] text-wrap-balance" style={{ textWrap: "balance" }}>
+              <p
+                className="text-[19px] font-normal leading-[1.7] tracking-[-0.01em] text-[#e8eaf0]"
+                style={{ textWrap: "balance" }}
+              >
                 {card.gist}
               </p>
               {card.eg && (
-                <div className="mt-[18px] border-l-2 pl-3" style={{ borderColor: "rgba(96,165,250,0.4)" }}>
+                <div
+                  className="mt-[18px] border-l-2 pl-3"
+                  style={{ borderColor: "rgba(96,165,250,0.4)" }}
+                >
                   <span className="mb-1.5 block text-[10px] font-semibold uppercase tracking-[0.14em] text-[#60a5fa]">
                     たとえると
                   </span>
