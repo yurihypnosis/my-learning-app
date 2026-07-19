@@ -85,6 +85,27 @@ export default async function LogPage() {
     }));
   }
 
+  // 単語カードの学習履歴も同じログに載せる（answer_events と同形にマージ）。
+  const { data: fcEvents } = await supabase
+    .from("flashcard_events")
+    .select("answered_at, result, deck_key, cat, category_color")
+    .eq("user_id", user.id)
+    .gte("answered_at", ninetyDaysAgo)
+    .order("answered_at", { ascending: false })
+    .limit(5000);
+
+  for (const e of fcEvents ?? []) {
+    rows.push({
+      answered_at: e.answered_at as string,
+      is_correct: (e.result as string) === "k",
+      confidence: null,
+      category_name: (e.cat as string) ?? "単語",
+      category_color: (e.category_color as string) ?? "#8892a4",
+      subject_slug: (e.deck_key as string) ?? "",
+    });
+  }
+  rows.sort((a, b) => b.answered_at.localeCompare(a.answered_at));
+
   return (
     <LogClient
       events={rows}

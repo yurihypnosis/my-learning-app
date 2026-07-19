@@ -27,6 +27,8 @@ const SUBJECT_LABELS: Record<string, string> = {
   "gh-200":        "GH-200",
   "dca":           "DCA",
   "istqb-ctal-ta": "ISTQB TA",
+  "g-kentei":      "G検定",
+  "gcp-pcde":      "Cloud DevOps",
 };
 
 const WEEKDAYS = ["日", "月", "火", "水", "木", "金", "土"];
@@ -217,7 +219,7 @@ export function LogClient({ events, todayKey, yesterdayKey }: Props) {
         {days.length === 0 ? (
           <div className="rounded-xl border border-[#2a2f3f] py-12 text-center">
             <p className="text-sm text-[#8892a4]">まだ記録がありません</p>
-            <p className="mt-1 text-xs text-[#555e70]">問題を解くと自動的に記録されます</p>
+            <p className="mt-1 text-xs text-[#555e70]">問題を解く・単語カードをめくると自動的に記録されます</p>
           </div>
         ) : (
           <div className="space-y-2">

@@ -198,6 +198,22 @@ export function FlashcardsClient({
     (ok: boolean) => {
       const card = queue[idx];
       record(deck.key, card.term, ok); // 進捗を永続化
+      if (userId) {
+        // 学習ログ用の履歴を1行残す（answer_events の単語版）。失敗はログのみ。
+        void supabase
+          .from("flashcard_events")
+          .insert({
+            user_id: userId,
+            deck_key: deck.key,
+            cat: card.cat,
+            category_color: categoryColor(card.cat),
+            result: ok ? "k" : "w",
+          })
+          .then(({ error }) => {
+            if (error)
+              console.error("[flashcard_events] insert failed:", error.message);
+          });
+      }
       if (ok) setKnown((k) => k + 1);
       else setWeakCards((w) => [...w, card]);
       const next = idx + 1;
@@ -209,7 +225,7 @@ export function FlashcardsClient({
         setShowPrecise(false);
       }
     },
-    [queue, idx, record, deck.key]
+    [queue, idx, record, deck.key, userId, supabase]
   );
 
   // キーボード操作: Space=めくる, 1=あやしい, 2=覚えていた

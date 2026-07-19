@@ -231,6 +231,30 @@ export interface Database {
         };
         Relationships: [];
       };
+      flashcard_events: {
+        Row: {
+          id: string;
+          user_id: string;
+          deck_key: string;
+          cat: string;
+          category_color: string;
+          result: string;
+          answered_at: string;
+        };
+        Insert: {
+          id?: string;
+          user_id: string;
+          deck_key: string;
+          cat: string;
+          category_color?: string;
+          result: string;
+          answered_at?: string;
+        };
+        Update: {
+          result?: string;
+        };
+        Relationships: [];
+      };
       user_term_progress: {
         Row: {
           user_id: string;
