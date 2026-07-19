@@ -8,6 +8,7 @@ import {
   type FlashCard,
   type FlashDeck,
 } from "@/lib/flashcards";
+import { createClient } from "@/lib/supabase/client";
 
 // 表示専用のシャッフル（Fisher-Yates）。Start 押下時にだけ回すので SSR とはずれない。
 function shuffled<T>(arr: T[]): T[] {
@@ -19,11 +20,17 @@ function shuffled<T>(arr: T[]): T[] {
   return a;
 }
 
-// ── 学習進捗の永続化（端末ローカル）──
-// まず新テーブルを作らず localStorage に持つ。用語ごとに直近の自己採点だけ見て
-// 「定着 / あやしい / 未学習」に振り分ける。将来 user_term_progress + FSRS へ移せる。
-const PKEY = "flashcards.progress.v1";
-type TermStat = { r: "k" | "w"; k: number; w: number; t: number };
+// ── 学習進捗の永続化（DB: user_term_progress）──
+// 用語ごとに直近の自己採点だけ見て「定着 / あやしい / 未学習」に振り分ける。
+// 本人の行のみ RLS で読み書き。PC/モバイルで同期する。
+export type TermRow = {
+  deck_key: string;
+  term: string;
+  result: string; // 'k'=定着 | 'w'=あやしい
+  known_count: number;
+  weak_count: number;
+};
+type TermStat = { r: "k" | "w"; k: number; w: number };
 type DeckProgress = Record<string, TermStat>;
 type Store = Record<string, DeckProgress>;
 type Status = "mastered" | "weak" | "new";
@@ -39,7 +46,15 @@ const container = "w-full max-w-[440px]";
 const lbl =
   "text-[10px] font-semibold uppercase tracking-[0.18em] text-[#555e70]";
 
-export function FlashcardsClient() {
+export function FlashcardsClient({
+  userId,
+  initialProgress,
+}: {
+  userId: string | null;
+  initialProgress: TermRow[];
+}) {
+  const supabase = useMemo(() => createClient(), []);
+
   const [deck, setDeck] = useState<FlashDeck>(FLASHCARD_DECKS[0]);
   const [phase, setPhase] = useState<Phase>("setup");
 
@@ -48,36 +63,54 @@ export function FlashcardsClient() {
   const [scope, setScope] = useState<Scope>("all");
   const [count, setCount] = useState<number>(20);
 
-  // ── 永続進捗 ──
-  const [store, setStore] = useState<Store>({});
-  useEffect(() => {
-    try {
-      const raw = localStorage.getItem(PKEY);
-      if (raw) setStore(JSON.parse(raw) as Store);
-    } catch {
-      /* 壊れた保存は無視 */
+  // ── 永続進捗（DBから受け取った初期値で seed。SSRと一致する）──
+  const [store, setStore] = useState<Store>(() => {
+    const s: Store = {};
+    for (const r of initialProgress) {
+      (s[r.deck_key] ??= {})[r.term] = {
+        r: r.result === "k" ? "k" : "w",
+        k: r.known_count,
+        w: r.weak_count,
+      };
     }
-  }, []);
+    return s;
+  });
 
-  const record = useCallback((deckKey: string, term: string, ok: boolean) => {
-    setStore((prev) => {
-      const dp: DeckProgress = { ...(prev[deckKey] ?? {}) };
-      const cur = dp[term] ?? { r: "w" as const, k: 0, w: 0, t: 0 };
-      dp[term] = {
+  const record = useCallback(
+    (deckKey: string, term: string, ok: boolean) => {
+      const cur = store[deckKey]?.[term] ?? { r: "w" as const, k: 0, w: 0 };
+      const next: TermStat = {
         r: ok ? "k" : "w",
         k: cur.k + (ok ? 1 : 0),
         w: cur.w + (ok ? 0 : 1),
-        t: Date.now(),
       };
-      const next = { ...prev, [deckKey]: dp };
-      try {
-        localStorage.setItem(PKEY, JSON.stringify(next));
-      } catch {
-        /* 保存不可でもセッションは続行 */
+      // 楽観的にローカル state を先に更新（UIは即反映）。
+      setStore((prev) => ({
+        ...prev,
+        [deckKey]: { ...(prev[deckKey] ?? {}), [term]: next },
+      }));
+      if (userId) {
+        void supabase
+          .from("user_term_progress")
+          .upsert(
+            {
+              user_id: userId,
+              deck_key: deckKey,
+              term,
+              result: next.r,
+              known_count: next.k,
+              weak_count: next.w,
+            },
+            { onConflict: "user_id,deck_key,term" }
+          )
+          .then(({ error }) => {
+            if (error)
+              console.error("[term_progress] save failed:", error.message);
+          });
       }
-      return next;
-    });
-  }, []);
+    },
+    [store, userId, supabase]
+  );
 
   // ── session 状態 ──
   const [queue, setQueue] = useState<FlashCard[]>([]);

@@ -231,6 +231,31 @@ export interface Database {
         };
         Relationships: [];
       };
+      user_term_progress: {
+        Row: {
+          user_id: string;
+          deck_key: string;
+          term: string;
+          result: string;
+          known_count: number;
+          weak_count: number;
+          updated_at: string;
+        };
+        Insert: {
+          user_id: string;
+          deck_key: string;
+          term: string;
+          result: string;
+          known_count?: number;
+          weak_count?: number;
+        };
+        Update: {
+          result?: string;
+          known_count?: number;
+          weak_count?: number;
+        };
+        Relationships: [];
+      };
       user_textbooks: {
         Row: {
           id: string;
