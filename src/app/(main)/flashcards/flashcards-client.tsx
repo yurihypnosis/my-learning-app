@@ -380,6 +380,16 @@ export function FlashcardsClient() {
                   </span>
                 </div>
               )}
+              {card.use && (
+                <div className="mt-[18px]">
+                  <span className="mb-1.5 block text-[10px] font-semibold uppercase tracking-[0.14em] text-[#7d8798]">
+                    使いどころ
+                  </span>
+                  <span className="text-[13.5px] leading-[1.7] text-[#8892a4]">
+                    {card.use}
+                  </span>
+                </div>
+              )}
 
               <div className="mt-auto pt-4">
                 <span
