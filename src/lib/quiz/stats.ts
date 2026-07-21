@@ -54,7 +54,9 @@ export function weakReviewPool(
     if (p.correct_count + p.wrong_count === 0) continue; // 未着手は対象外
     const wronged = p.wrong_count > 0 || p.last_is_correct === false;
     const weak = masteryFromProgress(p) < th;
-    if (!wronged && !weak) continue;
+    // Speak-First 科目: MCQ は正解でも口で言えなかった問題は産出の穴として復習対象
+    const spokenMiss = p.last_spoken_ok === false;
+    if (!wronged && !weak && !spokenMiss) continue;
     const score = q.initial_wrong_weight + p.wrong_count - p.correct_count * 0.6;
     scored.push({ q, score });
   }
@@ -216,7 +218,25 @@ export function calcCategoryMastery(
 const EXAM_ALIAS: Record<string, string> = {
   // ISTQB CTAL-TA は「CTAL-TA テストアナリスト」と同一試験
   "istqb-ctal-ta": "ctal-ta",
+  // 英語・句動詞ドリルはティア(T1/T2/T3)をまたいで1試験として束ねる。
+  // 規約の "-<英字>" 除去では pv-t1/pv-t2/pv-t3 の3区分に割れてしまうため明示する。
+  "pv-t1-a": "pv",
+  "pv-t1-b": "pv",
+  "pv-t2-a": "pv",
+  "pv-t2-b": "pv",
+  "pv-t2-c": "pv",
+  "pv-t3-a": "pv",
+  "pv-t3-b": "pv",
+  "pv-t3-c": "pv",
+  "pv-t3-d": "pv",
+  "pv-test": "pv",
 };
+
+// 英語・句動詞（文産出）ドリルの科目か。この科目では選択肢を見る前に
+// 声に出して英作する Speak-First フローを quiz 画面が強制する。
+export function isSpeakFirstSubject(slug: string): boolean {
+  return slug.startsWith("pv-");
+}
 
 // slug から試験キーを返す。まず別名表、無ければ Set 接尾辞 "-<英字1文字>" を除去。
 //   istqb-ctal-ta → ctal-ta（別名）

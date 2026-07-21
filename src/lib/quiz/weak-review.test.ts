@@ -82,6 +82,24 @@ describe("weakReviewPool", () => {
     expect(weakReviewPool(questions, map, { limit: 2 }).map((x) => x.id)).toEqual(["worst", "mid"]);
   });
 
+  it("includes a spoken-miss question even when the MCQ record is clean (Speak-First)", () => {
+    const questions = [q("a")];
+    // MCQ は全問正解・確信ありでも、口頭産出できなかった(last_spoken_ok=false)なら対象
+    const map: ProgressMap = {
+      a: prog("a", {
+        correct_count: 3,
+        consecutive_correct: 3,
+        last_is_correct: true,
+        last_confidence: 1,
+        last_spoken_ok: false,
+      }),
+    };
+    expect(weakReviewPool(questions, map).map((x) => x.id)).toEqual(["a"]);
+    // 言えた(true)へ倒せば通常判定に戻り、対象外
+    map.a = { ...map.a, last_spoken_ok: true };
+    expect(weakReviewPool(questions, map)).toEqual([]);
+  });
+
   it("counts模試由来の初期誤答(initial_wrong_weight) toward wrongness", () => {
     const questions = [q("seeded", 4)];
     // 一度解答済み(正解)だが initial_wrong_weight が高い → スコアで拾う。ただし

@@ -29,6 +29,7 @@ import {
   analyzeSections,
   sectionOverview,
   weakReviewPool,
+  isSpeakFirstSubject,
 } from "@/lib/quiz/stats";
 import { type Card, gradeFromAnswer, review } from "@/lib/quiz/fsrs";
 import {
@@ -325,6 +326,8 @@ export function LearningApp({
   const [answered, setAnswered] = useState(false);
   const [confidence, setConfidence] = useState<number | null>(null);
   const [choicesHidden, setChoicesHidden] = useState(false);
+  // Speak-First の「声に出す」ペーシング用カウントダウン（3→0）。門ではなくキュー。
+  const [speakCue, setSpeakCue] = useState(0);
   // 「前の問題に戻る」用: デッキ位置ごとに解答状態を保持し、行き来しても復元できるようにする
   const [qStates, setQStates] = useState<Record<number, QState>>({});
 
@@ -388,6 +391,24 @@ export function LearningApp({
     return () => clearTimeout(timer);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [memoText]);
+
+  // Speak-First 科目か（横断苦手デッキでは問題ごとに由来セットで判定）
+  const isSpeakFirstQ = (q: QuizQuestion) =>
+    isSpeakFirstSubject(examQuestionSlug[q.id] ?? currentSubjectSlug);
+
+  // Speak-First: 選択肢が隠れている間、3秒の口頭産出キューを刻む。
+  // reveal/解答/移動で止まる。QState には入れない（未解答で戻ったら再スタートでよい）。
+  useEffect(() => {
+    const q = deck[idx];
+    if (screen !== "quiz" || !q || !isSpeakFirstQ(q) || !choicesHidden || answered) {
+      setSpeakCue(0);
+      return;
+    }
+    setSpeakCue(3);
+    const timers = [1, 2, 3].map((s) => setTimeout(() => setSpeakCue(3 - s), s * 1000));
+    return () => timers.forEach(clearTimeout);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [screen, deck, idx, choicesHidden, answered]);
 
   const supabase = useMemo(() => createClient(), []);
 
@@ -488,6 +509,17 @@ export function LearningApp({
         .eq("question_id", qid);
       if (e2) console.error("[fsrs] save skipped:", e2.code, e2.message);
     }
+
+    // 3) Speak-First の口頭産出フラグ（別クエリ）。FSRS と同じく、列が無い環境でも
+    //    中核の保存は守られる。
+    if (partial.last_spoken_ok !== undefined) {
+      const { error: e3 } = await supabase
+        .from("user_question_progress")
+        .update({ last_spoken_ok: next.last_spoken_ok ?? null })
+        .eq("user_id", userId)
+        .eq("question_id", qid);
+      if (e3) console.error("[speak] save skipped:", e3.code, e3.message);
+    }
   };
 
   const restingCount = useMemo(
@@ -560,7 +592,7 @@ export function LearningApp({
     setMultiSelected(new Set());
     setAnswered(false);
     setConfidence(null);
-    setChoicesHidden(recallMode);
+    setChoicesHidden(recallMode || isSpeakFirstQ(pool[0]));
     setSessionResults([]);
     setQStates({});
     setMemoText(getProgress(progressMap, pool[0].id).memo);
@@ -661,7 +693,7 @@ export function LearningApp({
       setMultiSelected(new Set());
       setAnswered(false);
       setConfidence(null);
-      setChoicesHidden(recallMode);
+      setChoicesHidden(recallMode || isSpeakFirstQ(nq));
     }
     setMemoText(getProgress(progressMap, nq.id).memo);
     setIdx(target);
@@ -1967,6 +1999,7 @@ export function LearningApp({
   // ── QUIZ ──────────────────────────────────────────────────────────────
   const q = deck[idx];
   const p = getProgress(progressMap, q.id);
+  const speakFirst = isSpeakFirstQ(q);
 
   const isCorrect =
     q.question_type === "multi"
@@ -2062,8 +2095,16 @@ export function LearningApp({
         {/* Recall placeholder */}
         {choicesHidden ? (
           <div className="mb-5 rounded-xl border border-dashed border-[#2a2f3f] py-8 text-center">
-            <p className="mb-1 text-sm text-[#8892a4]">まず自分で考えてみよう</p>
-            <p className="mb-4 text-xs text-[#555e70]">答えが浮かんだら選択肢を表示する</p>
+            <p className="mb-1 text-sm text-[#8892a4]">
+              {speakFirst ? "声に出して英文を言ってみよう" : "まず自分で考えてみよう"}
+            </p>
+            <p className="mb-4 text-xs tabular-nums text-[#555e70]">
+              {speakFirst
+                ? speakCue > 0
+                  ? `${speakCue} 秒以内に言い切る`
+                  : "言い終えたら選択肢を表示する"
+                : "答えが浮かんだら選択肢を表示する"}
+            </p>
             <button
               onClick={() => setChoicesHidden(false)}
               className="rounded-lg bg-[#3b82f6] px-5 py-2 text-sm font-medium text-white transition hover:bg-[#60a5fa]"
@@ -2163,6 +2204,28 @@ export function LearningApp({
                 )}
               </div>
             </div>
+
+            {/* Speak-First: 口頭産出の自己申告。false の問題は苦手だけ演習に流入する */}
+            {speakFirst && (
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={() =>
+                    persist(q.id, { last_spoken_ok: p.last_spoken_ok === false ? true : false })
+                  }
+                  className="rounded-lg border px-3 py-1.5 text-xs transition"
+                  style={{
+                    borderColor: p.last_spoken_ok === false ? "#f59e0b" : "#2a2f3f",
+                    background: p.last_spoken_ok === false ? "#f59e0b18" : "transparent",
+                    color: p.last_spoken_ok === false ? "#f59e0b" : "#8892a4",
+                  }}
+                >
+                  口では言えなかった
+                </button>
+                <span className="text-[10px] text-[#555e70]">
+                  {p.last_spoken_ok === false ? "苦手だけ演習に入ります" : "3秒で言えなかったら押す"}
+                </span>
+              </div>
+            )}
 
             {/* Explanation */}
             <div className="rounded-xl border border-[#2a2f3f] bg-[#141720] p-4">

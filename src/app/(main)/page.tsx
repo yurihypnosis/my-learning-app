@@ -58,6 +58,7 @@ export default async function HomePage({
       understanding_level: p.understanding_level,
       memo: p.memo,
       last_confidence: (p.last_confidence as number | null) ?? null,
+      last_spoken_ok: (p.last_spoken_ok as boolean | null) ?? null,
       fsrs_stability: (p.fsrs_stability as number | null) ?? null,
       fsrs_difficulty: (p.fsrs_difficulty as number | null) ?? null,
       fsrs_due: (p.fsrs_due as string | null) ?? null,

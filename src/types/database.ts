@@ -153,6 +153,7 @@ export interface Database {
           understanding_level: number;
           memo: string;
           last_confidence: number | null;
+          last_spoken_ok: boolean | null;
           fsrs_stability: number | null;
           fsrs_difficulty: number | null;
           fsrs_due: string | null;
@@ -175,6 +176,7 @@ export interface Database {
           understanding_level?: number;
           memo?: string;
           last_confidence?: number | null;
+          last_spoken_ok?: boolean | null;
           fsrs_stability?: number | null;
           fsrs_difficulty?: number | null;
           fsrs_due?: string | null;
@@ -193,6 +195,7 @@ export interface Database {
           understanding_level?: number;
           memo?: string;
           last_confidence?: number | null;
+          last_spoken_ok?: boolean | null;
           fsrs_stability?: number | null;
           fsrs_difficulty?: number | null;
           fsrs_due?: string | null;

@@ -17,6 +17,7 @@ description: この学習アプリの問題集に問題・解説を追加/修正
 | GH-200 (GitHub Actions) | `question-authoring-gh200` |
 | CTAL-TA (ISTQB) | `question-authoring-ctal-ta` |
 | G検定 (JDLA) | `question-authoring-g-kentei` |
+| 英語・句動詞 (Speak-First) | `question-authoring-pv` |
 
 新しい試験を足すときは、既存の試験別スキルを雛形にして 1 枚追加する。
 

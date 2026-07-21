@@ -58,6 +58,8 @@ export interface Progress {
   understanding_level: number;
   memo: string;
   last_confidence: number | null; // 1=確信あり, 2=迷った, 3=勘
+  // Speak-First(句動詞)科目のみ: 直近で口頭産出できたか。null=未記録, false=口で言えなかった
+  last_spoken_ok?: boolean | null;
   // FSRS 記憶エンジンの状態（列が無い環境/未学習では未設定）
   fsrs_stability?: number | null;
   fsrs_difficulty?: number | null;
@@ -80,6 +82,7 @@ export function emptyProgress(questionId: string): Progress {
     understanding_level: 0,
     memo: "",
     last_confidence: null,
+    last_spoken_ok: null,
     fsrs_stability: null,
     fsrs_difficulty: null,
     fsrs_due: null,
