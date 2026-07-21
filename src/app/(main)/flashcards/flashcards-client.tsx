@@ -76,6 +76,51 @@ export function FlashcardsClient({
     return s;
   });
 
+  // 有効なユーザーID。原則は SSR から渡る userId。だが SSR 時にトークンが未更新だと
+  // userId=null / initialProgress=[] で描画され、学習済みの語が「未学習」に出戻る。
+  // ブラウザ側クライアントは生きたセッションを持つので、マウント後にそこから本人を解決し直す。
+  const [effUserId, setEffUserId] = useState<string | null>(userId);
+
+  // マウント後、DBから自分の進捗を取り直して store を補完する（DBが正本）。
+  // SSR が空／部分的だった場合でも、これで学習済みの語が確実に「未学習」から外れる。
+  // PC・スマホどちらでも同じDBを読むのでクロスデバイスで一致する。
+  useEffect(() => {
+    let cancelled = false;
+    void (async () => {
+      const {
+        data: { user },
+      } = await supabase.auth.getUser();
+      if (cancelled || !user) return;
+      setEffUserId(user.id);
+      const { data, error } = await supabase
+        .from("user_term_progress")
+        .select("deck_key, term, result, known_count, weak_count")
+        .eq("user_id", user.id);
+      if (cancelled || error || !data) return;
+      // DB にあってローカル store に無い語だけを足す（進行中の採点を上書きしない）。
+      setStore((prev) => {
+        const next: Store = { ...prev };
+        let changed = false;
+        for (const r of data as TermRow[]) {
+          const deckMap = next[r.deck_key];
+          if (deckMap && r.term in deckMap) continue; // 既にある語はそのまま
+          const merged = { ...(next[r.deck_key] ?? {}) };
+          merged[r.term] = {
+            r: r.result === "k" ? "k" : "w",
+            k: r.known_count,
+            w: r.weak_count,
+          };
+          next[r.deck_key] = merged;
+          changed = true;
+        }
+        return changed ? next : prev;
+      });
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [supabase]);
+
   const record = useCallback(
     (deckKey: string, term: string, ok: boolean) => {
       const cur = store[deckKey]?.[term] ?? { r: "w" as const, k: 0, w: 0 };
@@ -89,12 +134,12 @@ export function FlashcardsClient({
         ...prev,
         [deckKey]: { ...(prev[deckKey] ?? {}), [term]: next },
       }));
-      if (userId) {
+      if (effUserId) {
         void supabase
           .from("user_term_progress")
           .upsert(
             {
-              user_id: userId,
+              user_id: effUserId,
               deck_key: deckKey,
               term,
               result: next.r,
@@ -109,7 +154,7 @@ export function FlashcardsClient({
           });
       }
     },
-    [store, userId, supabase]
+    [store, effUserId, supabase]
   );
 
   // ── session 状態 ──
@@ -198,12 +243,12 @@ export function FlashcardsClient({
     (ok: boolean) => {
       const card = queue[idx];
       record(deck.key, card.term, ok); // 進捗を永続化
-      if (userId) {
+      if (effUserId) {
         // 学習ログ用の履歴を1行残す（answer_events の単語版）。失敗はログのみ。
         void supabase
           .from("flashcard_events")
           .insert({
-            user_id: userId,
+            user_id: effUserId,
             deck_key: deck.key,
             cat: card.cat,
             category_color: categoryColor(card.cat),
@@ -225,7 +270,7 @@ export function FlashcardsClient({
         setShowPrecise(false);
       }
     },
-    [queue, idx, record, deck.key, userId, supabase]
+    [queue, idx, record, deck.key, effUserId, supabase]
   );
 
   // キーボード操作: Space=めくる, 1=あやしい, 2=覚えていた
