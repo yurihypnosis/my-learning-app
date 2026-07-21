@@ -38,7 +38,7 @@ subject の description（テンプレ）:
 
 - **T1**: 原因・結果系（stem from, bring about, result in, account for）／実行・遂行系（carry out, set out, follow through）／除外・特定系（rule out, single out, point to）／依拠・構成系（draw on, build on, make up）／要約・帰着系（boil down to, come down to, add up to）
 - **T2**: 主張・提起系（put forward, bring up, point out）／賛否・譲歩系（go along with, back up, hold out against）／検討・判断系（weigh up, think over, settle on）／継続・断念系（keep up, press on, back out）
-- **T3**: 先送り・回避系（put off, get out of, back off）／開始・着手系（set off, take up, get down to）／関係・対立系（get along with, fall out, make up）／増減・変化系（go up, cut down on, turn into）／発覚・判明系（find out, turn out, come across）
+- **T3**: 先送り・回避系（put off, get out of, back off）／開始・着手系（set off, take up, get down to）／関係・対立系（get along with, fall out, make up）／増減・変化系（go up, cut down on, turn into）／発覚・判明系（find out, turn out, come across）／感情・反応系（freak out, calm down, get over）— T3の元クラスタが5つで奇数のためセットに割り切れず、pv-t3-c で発覚・判明系の相方として追加した補助クラスタ
 
 ## 設問の形式
 
