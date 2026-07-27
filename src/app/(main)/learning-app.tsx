@@ -1,25 +1,17 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
-import { createClient } from "@/lib/supabase/client";
-import {
-  type ExplanationData,
-  type Progress,
-  type QuizMode,
-  type QuizQuestion,
-} from "@/lib/quiz/types";
+import { type ExplanationData, type QuizQuestion } from "@/lib/quiz/types";
 import {
   buildDeck,
-  eligibleQuestions,
   getProgress,
   isResting,
-  shuffleOptions,
   totalCorrect,
   totalWrong,
   type ProgressMap,
 } from "@/lib/quiz/selection";
-import { buildCSV, downloadCSV, type ExportMode } from "@/lib/quiz/csv";
+import { downloadCSV, type ExportMode } from "@/lib/quiz/csv";
 import {
   type UserGoal,
   type Textbook,
@@ -31,16 +23,18 @@ import {
   weakReviewPool,
   isSpeakFirstSubject,
 } from "@/lib/quiz/stats";
-import { type Card, gradeFromAnswer, review } from "@/lib/quiz/fsrs";
-import {
-  type Readiness,
-  type Verdict,
-  computeReadiness,
-  estimatePassProbability,
-  examItemProb,
-  passLineFor,
-  retentionEstimate,
-} from "@/lib/quiz/readiness";
+import { type Verdict } from "@/lib/quiz/readiness";
+import { arraysEqual } from "@/features/quiz/lib/grading";
+import { useNow } from "@/features/quiz/hooks/use-now";
+import { useScreen } from "@/features/quiz/hooks/use-screen";
+import { useProgress } from "@/features/quiz/hooks/use-progress";
+import { useMenuSettings } from "@/features/quiz/hooks/use-menu-settings";
+import { useQuizSession } from "@/features/quiz/hooks/use-quiz-session";
+import { useExamGoal } from "@/features/quiz/hooks/use-exam-goal";
+import { useTextbooks } from "@/features/quiz/hooks/use-textbooks";
+import { useCsvExport } from "@/features/quiz/hooks/use-csv-export";
+import { useFsrsBackfill } from "@/features/quiz/hooks/use-fsrs-backfill";
+import { useReadiness } from "@/features/quiz/hooks/use-readiness";
 
 // 「苦手だけ演習」1セッションの上限。弱点順に上位から出す（多すぎる一括を避ける）。
 const WEAK_SESSION_MAX = 30;
@@ -53,63 +47,8 @@ const VERDICT_META: Record<Verdict, { label: string; color: string }> = {
   "no-date": { label: "", color: "#8892a4" },
 };
 
-function daysUntilDate(dateStr: string, nowMs: number): number {
-  const target = new Date(dateStr + "T00:00:00");
-  if (Number.isNaN(target.getTime())) return 0;
-  const today = new Date(nowMs);
-  today.setHours(0, 0, 0, 0);
-  return Math.round((target.getTime() - today.getTime()) / 86_400_000);
-}
-
-// 進捗行 → FSRS カード。列が無い/未学習なら new。
-function cardFromProgress(p: Progress): Card {
-  return {
-    stability: p.fsrs_stability ?? 0,
-    difficulty: p.fsrs_difficulty ?? 0,
-    reps: p.fsrs_reps ?? 0,
-    lapses: p.fsrs_lapses ?? 0,
-    lastReview: p.fsrs_last_review ?? null,
-    due: p.fsrs_due ?? null,
-    state: p.fsrs_state === "review" ? "review" : "new",
-  };
-}
-
-// 1 解答分の FSRS 更新を Progress の部分更新として返す。
-function fsrsFields(
-  cur: Progress,
-  isCorrect: boolean,
-  conf: number | null,
-  nowMs: number
-): Partial<Progress> {
-  const card = review(cardFromProgress(cur), gradeFromAnswer(isCorrect, conf), nowMs);
-  return {
-    fsrs_stability: card.stability,
-    fsrs_difficulty: card.difficulty,
-    fsrs_due: card.due,
-    fsrs_last_review: card.lastReview,
-    fsrs_reps: card.reps,
-    fsrs_lapses: card.lapses,
-    fsrs_state: card.state,
-  };
-}
-
-type Screen = "menu" | "quiz" | "done" | "analysis" | "export" | "goal";
-type SessionResult = { id: string; correct: boolean; confidence: number | null; category: string; color: string };
-// クイズ中の1問ごとの解答状態スナップショット（前後移動時の復元用）
-type QState = {
-  picked: number | null;
-  multiSelected: number[];
-  answered: boolean;
-  confidence: number | null;
-  choicesHidden: boolean;
-};
-
 const CONFIDENCE_LABELS = ["確信あり", "迷った", "勘"] as const;
 const CONFIDENCE_COLORS = ["#22c55e", "#f59e0b", "#ef4444"] as const;
-
-function arraysEqual(a: number[], b: number[]): boolean {
-  return a.length === b.length && a.every((v, i) => v === b[i]);
-}
 
 function RichExplanation({ data }: { data: ExplanationData }) {
   const lbl = "mb-2 text-[10px] font-semibold uppercase tracking-widest text-[#555e70]";
@@ -297,245 +236,108 @@ export function LearningApp({
   dailyCapacity,
 }: Props) {
   const router = useRouter();
-  const [now, setNow] = useState(0);
-  const [progressMap, setProgressMap] = useState<ProgressMap>(initialProgress);
-  const [screen, setScreen] = useState<Screen>("menu");
-  const [pickerOpen, setPickerOpen] = useState(false);
+  const now = useNow();
+  const { screen, setScreen, pickerOpen, setPickerOpen } = useScreen();
+  // 分野別 苦手マップで開いている分野（分析画面だけのローカル表示状態）
   const [expandedSection, setExpandedSection] = useState<string | null>(null);
-  const [backfilling, setBackfilling] = useState(false);
-  const [backfillMsg, setBackfillMsg] = useState("");
+
   // 問題集ピッカーは試験単位に折りたたみ、1試験だけ展開する（学習中の試験を初期展開）。
   const currentExamKey = useMemo(
     () => examGroups.find((g) => g.sets.some((s) => s.slug === currentSubjectSlug))?.examKey ?? null,
     [examGroups, currentSubjectSlug]
   );
-  const [expandedExam, setExpandedExam] = useState<string | null>(currentExamKey);
-  const [selCats, setSelCats] = useState<Set<string>>(
-    () => new Set(categories.map((c) => c.id))
-  );
-  const [count, setCount] = useState(10);
-  const [mode, setMode] = useState<QuizMode>("shuffle");
-  const [recallMode, setRecallMode] = useState(false);
-  // 休眠中（復習日がまだ来ていない）の問題も出題対象に含めるか。手動復習用。
-  const [includeResting, setIncludeResting] = useState(false);
-  const [deck, setDeck] = useState<QuizQuestion[]>([]);
-  const [idx, setIdx] = useState(0);
 
-  const [picked, setPicked] = useState<number | null>(null);
-  const [multiSelected, setMultiSelected] = useState<Set<number>>(new Set());
-  const [answered, setAnswered] = useState(false);
-  const [confidence, setConfidence] = useState<number | null>(null);
-  const [choicesHidden, setChoicesHidden] = useState(false);
-  // Speak-First の「声に出す」ペーシング用カウントダウン（3→0）。門ではなくキュー。
-  const [speakCue, setSpeakCue] = useState(0);
-  // 「前の問題に戻る」用: デッキ位置ごとに解答状態を保持し、行き来しても復元できるようにする
-  const [qStates, setQStates] = useState<Record<number, QState>>({});
-
-  const [sessionResults, setSessionResults] = useState<SessionResult[]>([]);
-  const [memoText, setMemoText] = useState("");
-  const [csvText, setCsvText] = useState("");
-  const [exportMode, setExportMode] = useState<ExportMode>("weak");
-  const [copyMsg, setCopyMsg] = useState("");
-
-  // 試験区分ごとの試験日。サーバ(DB)由来の initialGoal を初期値にし、
-  // 試験区分が変わったら（別試験へ切替）サーバの新しい値へ同期する。
-  const [goal, setGoal] = useState<UserGoal | null>(initialGoal);
-  const [goalDraft, setGoalDraft] = useState<{ examDate: string; targetName: string }>({
-    examDate: initialGoal?.examDate ?? "",
-    targetName: initialGoal?.targetName ?? "",
+  const { progressMap, persist, recordAnswer } = useProgress({
+    userId,
+    initialProgress,
+    examQuestionSlug,
+    currentSubjectSlug,
   });
-  const [sessionStartPassProb, setSessionStartPassProb] = useState<number | null>(null);
 
-  // 試験区分ごとの教科書リンク。goal と同様、区分が変わったらサーバの新しい値へ同期する。
-  const [textbooks, setTextbooks] = useState<Textbook[]>(initialTextbooks);
-  const [tbEditing, setTbEditing] = useState(false);
-  const [tbDraft, setTbDraft] = useState<{ label: string; url: string }>({ label: "", url: "" });
-  const [tbError, setTbError] = useState<string | null>(null);
-
-  useEffect(() => {
-    setNow(Date.now());
-  }, []);
-
-  useEffect(() => {
-    setGoal(initialGoal);
-    setGoalDraft({
-      examDate: initialGoal?.examDate ?? "",
-      targetName: initialGoal?.targetName ?? "",
-    });
-    setTextbooks(initialTextbooks);
-    setTbEditing(false);
-    setTbDraft({ label: "", url: "" });
-    setTbError(null);
-    // 試験区分キーが変わったときだけ同期（同一試験内のセット切替では維持）。
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [goalExamKey]);
-
-  // ヘッダの Home ボタンからの合図で、内部画面(クイズ/分析など)を
-  // トップ(メニュー)へ戻す。別ルートからの遷移は新規マウントで menu になる。
-  useEffect(() => {
-    const goMenu = () => {
-      setScreen("menu");
-      setPickerOpen(false);
-      window.scrollTo({ top: 0 });
-    };
-    window.addEventListener("app:home", goMenu);
-    return () => window.removeEventListener("app:home", goMenu);
-  }, []);
-
-  useEffect(() => {
-    if (!answered || !deck[idx]) return;
-    const qid = deck[idx].id;
-    const timer = setTimeout(() => {
-      persist(qid, { memo: memoText });
-    }, 800);
-    return () => clearTimeout(timer);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [memoText]);
+  const {
+    selCats,
+    setSelCats,
+    count,
+    setCount,
+    mode,
+    setMode,
+    recallMode,
+    setRecallMode,
+    includeResting,
+    setIncludeResting,
+    expandedExam,
+    setExpandedExam,
+    restingCount,
+    eligible,
+    eligibleWithResting,
+  } = useMenuSettings({ categories, questions, progressMap, now, currentExamKey });
 
   // Speak-First 科目か（横断苦手デッキでは問題ごとに由来セットで判定）
   const isSpeakFirstQ = (q: QuizQuestion) =>
     isSpeakFirstSubject(examQuestionSlug[q.id] ?? currentSubjectSlug);
 
-  // Speak-First: 選択肢が隠れている間、3秒の口頭産出キューを刻む。
-  // reveal/解答/移動で止まる。QState には入れない（未解答で戻ったら再スタートでよい）。
-  useEffect(() => {
-    const q = deck[idx];
-    if (screen !== "quiz" || !q || !isSpeakFirstQ(q) || !choicesHidden || answered) {
-      setSpeakCue(0);
-      return;
-    }
-    setSpeakCue(3);
-    const timers = [1, 2, 3].map((s) => setTimeout(() => setSpeakCue(3 - s), s * 1000));
-    return () => timers.forEach(clearTimeout);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [screen, deck, idx, choicesHidden, answered]);
+  const session = useQuizSession({
+    screen,
+    setScreen,
+    questions,
+    progressMap,
+    persist,
+    recordAnswer,
+    recallMode,
+    isSpeakFirstQ,
+  });
+  const {
+    deck,
+    idx,
+    picked,
+    multiSelected,
+    answered,
+    confidence,
+    choicesHidden,
+    speakCue,
+    memoText,
+    sessionResults,
+    sessionStartPassProb,
+    pick,
+    toggleMulti,
+    setConfidence,
+    revealChoices,
+    setMemoText,
+    startReview,
+    submitAnswer,
+    goToIndex,
+    saveMemoAndNext,
+  } = session;
 
-  const supabase = useMemo(() => createClient(), []);
+  const { goal, goalDraft, setGoalDraft, saveGoal, clearGoal } = useExamGoal({
+    userId,
+    goalExamKey,
+    initialGoal,
+  });
 
-  // ── 教科書リンク CRUD（試験区分ごと・楽観的更新）──
-  const addTextbook = async () => {
-    const url = tbDraft.url.trim();
-    const label = tbDraft.label.trim();
-    if (!/^https?:\/\//i.test(url)) {
-      setTbError("URL は http:// または https:// で始めてください");
-      return;
-    }
-    const id = crypto.randomUUID();
-    setTextbooks((list) => [...list, { id, label, url }]);
-    setTbDraft({ label: "", url: "" });
-    setTbError(null);
-    const { error } = await supabase.from("user_textbooks").insert({
-      id,
-      user_id: userId,
-      exam_key: goalExamKey,
-      label,
-      url,
-      sort_order: textbooks.length,
-    });
-    if (error) {
-      console.error("[user_textbooks] add failed:", error.code, error.message);
-      setTextbooks((list) => list.filter((t) => t.id !== id)); // ロールバック
-      setTbError("保存に失敗しました");
-    }
-  };
-  const deleteTextbook = async (id: string) => {
-    const prev = textbooks;
-    setTextbooks((list) => list.filter((t) => t.id !== id));
-    const { error } = await supabase
-      .from("user_textbooks")
-      .delete()
-      .eq("user_id", userId)
-      .eq("id", id);
-    if (error) {
-      console.error("[user_textbooks] delete failed:", error.code, error.message);
-      setTextbooks(prev); // ロールバック
-    }
-  };
+  const {
+    textbooks,
+    tbEditing,
+    setTbEditing,
+    tbDraft,
+    setTbDraft,
+    tbError,
+    setTbError,
+    addTextbook,
+    deleteTextbook,
+  } = useTextbooks({ userId, goalExamKey, initialTextbooks });
 
-  const recordAnswer = (q: QuizQuestion, isCorrect: boolean, conf: number | null) => {
-    supabase.from("answer_events").insert({
-      user_id: userId,
-      question_id: q.id,
-      category_id: q.category_id,
-      category_name: q.category_name,
-      category_color: q.category_color,
-      subject_slug: examQuestionSlug[q.id] ?? currentSubjectSlug,
-      is_correct: isCorrect,
-      confidence: conf,
-    }).then(({ error }) => {
-      if (error) console.error("[answer_events] insert failed:", error.code, error.message);
-    });
-  };
-
-  const persist = async (qid: string, partial: Partial<Progress>) => {
-    const cur = getProgress(progressMap, qid);
-    const next: Progress = { ...cur, ...partial };
-    setProgressMap((m) => ({ ...m, [qid]: next }));
-
-    // 1) 中核カラム（必ず保存する。ここは常に成功させたい）
-    const { error } = await supabase.from("user_question_progress").upsert(
-      {
-        user_id: userId,
-        question_id: qid,
-        correct_count: next.correct_count,
-        wrong_count: next.wrong_count,
-        consecutive_correct: next.consecutive_correct,
-        last_is_correct: next.last_is_correct,
-        last_selected_index: next.last_selected_index,
-        last_answered_at: next.last_answered_at,
-        understanding_level: next.understanding_level,
-        memo: next.memo,
-        last_confidence: next.last_confidence,
-      },
-      { onConflict: "user_id,question_id" }
-    );
-    if (error) console.error("save failed", error);
-
-    // 2) FSRS カラム（解答時のみ・別クエリ）。列が無い環境ではここだけ失敗し、
-    //    中核の保存は守られる（マイグレーション適用前にデプロイしても壊れない）。
-    if (partial.fsrs_state !== undefined) {
-      const { error: e2 } = await supabase
-        .from("user_question_progress")
-        .update({
-          fsrs_stability: next.fsrs_stability ?? null,
-          fsrs_difficulty: next.fsrs_difficulty ?? null,
-          fsrs_due: next.fsrs_due ?? null,
-          fsrs_last_review: next.fsrs_last_review ?? null,
-          fsrs_reps: next.fsrs_reps ?? 0,
-          fsrs_lapses: next.fsrs_lapses ?? 0,
-          fsrs_state: next.fsrs_state ?? "new",
-        })
-        .eq("user_id", userId)
-        .eq("question_id", qid);
-      if (e2) console.error("[fsrs] save skipped:", e2.code, e2.message);
-    }
-
-    // 3) Speak-First の口頭産出フラグ（別クエリ）。FSRS と同じく、列が無い環境でも
-    //    中核の保存は守られる。
-    if (partial.last_spoken_ok !== undefined) {
-      const { error: e3 } = await supabase
-        .from("user_question_progress")
-        .update({ last_spoken_ok: next.last_spoken_ok ?? null })
-        .eq("user_id", userId)
-        .eq("question_id", qid);
-      if (e3) console.error("[speak] save skipped:", e3.code, e3.message);
-    }
-  };
-
-  const restingCount = useMemo(
-    () => questions.filter((q) => isResting(getProgress(progressMap, q.id), now)).length,
-    [questions, progressMap, now]
-  );
-
-  const eligible = useMemo(
-    () => eligibleQuestions(questions, progressMap, selCats, now, includeResting),
-    [questions, progressMap, selCats, now, includeResting]
-  );
-  // 休眠を無視した出題対象。全問休眠でスタートが空のとき、脱出口を出すかの判定に使う。
-  const eligibleWithResting = useMemo(
-    () => eligibleQuestions(questions, progressMap, selCats, now, true),
-    [questions, progressMap, selCats, now]
-  );
+  const csv = useCsvExport({ questions, progressMap, now });
+  const { backfilling, backfillMsg, runBackfill } = useFsrsBackfill();
+  const { readiness, passEstimate } = useReadiness({
+    examSections,
+    examQuestions,
+    progressMap,
+    goal,
+    now,
+    dailyCapacity,
+    goalExamKey,
+  });
 
   // 試験区分の全セットを横断した「間違えた/苦手」問題プール（弱点順）。
   const examWeakPool = useMemo(
@@ -548,60 +350,9 @@ export function LearningApp({
     [examGroups, currentExamKey]
   );
 
-  // 合格ナビ: 試験全体（examSections=全Set）× 定着度 × 試験日 から着地予測。
-  const readiness = useMemo<Readiness | null>(() => {
-    if (now === 0 || examSections.length === 0) return null;
-    const ids = [...new Set(examSections.map((s) => s.id))];
-    const retentions = ids.map((id) => retentionEstimate(getProgress(progressMap, id), now));
-    const attempted = ids.reduce((n, id) => {
-      const p = getProgress(progressMap, id);
-      return n + (p.correct_count + p.wrong_count > 0 ? 1 : 0);
-    }, 0);
-    const daysLeft = goal?.examDate ? daysUntilDate(goal.examDate, now) : null;
-    return computeReadiness({
-      retentions,
-      total: ids.length,
-      attempted,
-      daysLeft,
-      capacity: dailyCapacity,
-      passLine: passLineFor(goalExamKey),
-    });
-  }, [examSections, progressMap, goal, now, dailyCapacity, goalExamKey]);
-
-  // 本日時点の合格確率（ポアソン二項）。試験区分の全問を per-item 正答確率にし、
-  // 未見問題は「その分野の能力」で汎化予測 → 正答数が合格ラインを超える確率。
-  const passEstimate = useMemo(() => {
-    if (now === 0 || examQuestions.length === 0) return null;
-    const items = examQuestions.map((q) => {
-      const guess = 1 / Math.max(2, q.options.length);
-      return {
-        prob: examItemProb(getProgress(progressMap, q.id), now, guess),
-        guess,
-        category: q.category_name,
-      };
-    });
-    return estimatePassProbability(items, passLineFor(goalExamKey));
-  }, [examQuestions, progressMap, now, goalExamKey]);
-
-  const enterQuiz = (pool: QuizQuestion[]) => {
-    if (!pool.length) return;
-    setSessionStartPassProb(calcMasteryStats(questions, progressMap).passProb);
-    setDeck(pool);
-    setIdx(0);
-    setPicked(null);
-    setMultiSelected(new Set());
-    setAnswered(false);
-    setConfidence(null);
-    setChoicesHidden(recallMode || isSpeakFirstQ(pool[0]));
-    setSessionResults([]);
-    setQStates({});
-    setMemoText(getProgress(progressMap, pool[0].id).memo);
-    setScreen("quiz");
-  };
-
   // force=true で休眠中も含める（全問休眠時の脱出口・トグルの両方から使う）。
   const startQuiz = (force = false) => {
-    enterQuiz(
+    session.enterQuiz(
       buildDeck({
         questions,
         progressMap,
@@ -614,120 +365,8 @@ export function LearningApp({
     );
   };
 
-  // 苦手問題など、指定した問題だけを復習するセッションを開始（選択肢はシャッフル）
-  const startReview = (qs: QuizQuestion[]) => {
-    enterQuiz(qs.map(shuffleOptions));
-  };
-
-  const toggleMulti = (i: number) => {
-    if (answered) return;
-    setMultiSelected((prev) => {
-      const s = new Set(prev);
-      s.has(i) ? s.delete(i) : s.add(i);
-      return s;
-    });
-  };
-
-  const submitAnswer = () => {
-    if (answered || confidence === null) return;
-    const q = deck[idx];
-    if (q.question_type === "multi") {
-      if (multiSelected.size === 0) return;
-      const selected = Array.from(multiSelected).sort((a, b) => a - b);
-      const expected = [...(q.correct_indices ?? [q.correct_index])].sort((a, b) => a - b);
-      const isCorrect = arraysEqual(selected, expected);
-      const magure = isCorrect && confidence === 3;
-      setAnswered(true);
-      const cur = getProgress(progressMap, q.id);
-      const base: Partial<Progress> = isCorrect
-        ? { correct_count: cur.correct_count + 1, consecutive_correct: magure ? 0 : cur.consecutive_correct + 1, last_is_correct: true, last_answered_at: new Date().toISOString(), last_confidence: confidence }
-        : { wrong_count: cur.wrong_count + 1, consecutive_correct: 0, last_is_correct: false, last_answered_at: new Date().toISOString(), last_confidence: confidence };
-      const partial: Partial<Progress> = { ...base, ...fsrsFields(cur, isCorrect, confidence, Date.now()) };
-      setSessionResults((r) => [...r, { id: q.id, correct: isCorrect, confidence, category: q.category_name, color: q.category_color }]);
-      persist(q.id, partial);
-      recordAnswer(q, isCorrect, confidence);
-    } else {
-      if (picked === null) return;
-      const isCorrect = picked === q.correct_index;
-      const magure = isCorrect && confidence === 3;
-      setAnswered(true);
-      const cur = getProgress(progressMap, q.id);
-      // 表示順でシャッフルしているため、保存は元(DB)のインデックスに戻す
-      const selectedOrig = q.optionOrder ? q.optionOrder[picked] : picked;
-      const base: Partial<Progress> = isCorrect
-        ? { correct_count: cur.correct_count + 1, consecutive_correct: magure ? 0 : cur.consecutive_correct + 1, last_is_correct: true, last_selected_index: selectedOrig, last_answered_at: new Date().toISOString(), last_confidence: confidence }
-        : { wrong_count: cur.wrong_count + 1, consecutive_correct: 0, last_is_correct: false, last_selected_index: selectedOrig, last_answered_at: new Date().toISOString(), last_confidence: confidence };
-      const partial: Partial<Progress> = { ...base, ...fsrsFields(cur, isCorrect, confidence, Date.now()) };
-      setSessionResults((r) => [...r, { id: q.id, correct: isCorrect, confidence, category: q.category_name, color: q.category_color }]);
-      persist(q.id, partial);
-      recordAnswer(q, isCorrect, confidence);
-    }
-  };
-
-  // 現在の問題の解答状態をスナップショット化
-  const snapshotCurrent = (): QState => ({
-    picked,
-    multiSelected: Array.from(multiSelected),
-    answered,
-    confidence,
-    choicesHidden,
-  });
-
-  // デッキ内の任意の問題へ移動。現在の状態を保存し、移動先の状態を復元（なければ新規）
-  const goToIndex = (target: number) => {
-    if (target < 0 || target >= deck.length || target === idx) return;
-    persist(deck[idx].id, { memo: memoText });
-    setQStates((m) => ({ ...m, [idx]: snapshotCurrent() }));
-    window.scrollTo({ top: 0, behavior: "smooth" });
-
-    const nq = deck[target];
-    const saved = qStates[target];
-    if (saved) {
-      setPicked(saved.picked);
-      setMultiSelected(new Set(saved.multiSelected));
-      setAnswered(saved.answered);
-      setConfidence(saved.confidence);
-      setChoicesHidden(saved.choicesHidden);
-    } else {
-      setPicked(null);
-      setMultiSelected(new Set());
-      setAnswered(false);
-      setConfidence(null);
-      setChoicesHidden(recallMode || isSpeakFirstQ(nq));
-    }
-    setMemoText(getProgress(progressMap, nq.id).memo);
-    setIdx(target);
-  };
-
-  const saveMemoAndNext = () => {
-    if (idx + 1 >= deck.length) {
-      persist(deck[idx].id, { memo: memoText });
-      window.scrollTo({ top: 0, behavior: "smooth" });
-      setScreen("done");
-      return;
-    }
-    goToIndex(idx + 1);
-  };
-
   const switchSubject = (slug: string) => {
     router.push(slug ? `/?subject=${slug}` : "/");
-  };
-
-  // 過去の解答から FSRS 状態を一括再構築（合格ナビ/復習間隔を正確化）
-  const runBackfill = async () => {
-    setBackfilling(true);
-    setBackfillMsg("");
-    try {
-      const res = await fetch("/api/fsrs/backfill", { method: "POST" });
-      const j = await res.json();
-      if (!res.ok) throw new Error(j.error || "失敗");
-      setBackfillMsg(`${j.updated} 問を過去の解答から再構築しました`);
-      router.refresh();
-    } catch (e) {
-      setBackfillMsg("再構築に失敗しました: " + (e as Error).message);
-    } finally {
-      setBackfilling(false);
-    }
   };
 
   if (now === 0) {
@@ -743,34 +382,6 @@ export function LearningApp({
 
   // ── GOAL ──────────────────────────────────────────────────────────────
   if (screen === "goal") {
-    const handleSaveGoal = async () => {
-      if (!goalDraft.examDate) return;
-      const g: UserGoal = { examDate: goalDraft.examDate, targetName: goalDraft.targetName };
-      setGoal(g);
-      setScreen("menu");
-      const { error } = await supabase.from("user_exam_goals").upsert(
-        {
-          user_id: userId,
-          exam_key: goalExamKey,
-          exam_date: g.examDate,
-          target_name: g.targetName,
-        },
-        { onConflict: "user_id,exam_key" }
-      );
-      if (error) console.error("[user_exam_goals] save failed:", error.code, error.message);
-    };
-    const handleClearGoal = async () => {
-      setGoal(null);
-      setGoalDraft({ examDate: "", targetName: "" });
-      setScreen("menu");
-      const { error } = await supabase
-        .from("user_exam_goals")
-        .delete()
-        .eq("user_id", userId)
-        .eq("exam_key", goalExamKey);
-      if (error) console.error("[user_exam_goals] clear failed:", error.code, error.message);
-    };
-
     return (
       <div className={wrap}>
         <div className={container}>
@@ -794,7 +405,7 @@ export function LearningApp({
           />
 
           <button
-            onClick={handleSaveGoal}
+            onClick={() => saveGoal(() => setScreen("menu"))}
             disabled={!goalDraft.examDate}
             className="mb-2 w-full rounded-xl bg-[#3b82f6] py-3 text-sm font-medium text-white transition hover:bg-[#60a5fa] disabled:bg-[#1a1d27] disabled:text-[#555e70]"
           >
@@ -802,7 +413,7 @@ export function LearningApp({
           </button>
           {goal && (
             <button
-              onClick={handleClearGoal}
+              onClick={() => clearGoal(() => setScreen("menu"))}
               className="mb-2 w-full rounded-xl border border-[#2a1010] bg-[#160606] py-3 text-sm font-medium text-[#ef4444] transition hover:border-[#3f1515]"
             >
               削除
@@ -1440,8 +1051,7 @@ export function LearningApp({
               {
                 label: "書き出し",
                 action: () => {
-                  setCsvText(buildCSV(questions, progressMap, now, exportMode));
-                  setCopyMsg("");
+                  csv.refresh();
                   setScreen("export");
                 },
               },
@@ -1482,12 +1092,6 @@ export function LearningApp({
       { key: "all",  label: "全問題",   count: questions.length },
     ];
 
-    const rebuild = (m: ExportMode) => {
-      setExportMode(m);
-      setCsvText(buildCSV(questions, progressMap, now, m));
-      setCopyMsg("");
-    };
-
     return (
       <div className={wrap}>
         <div className={container}>
@@ -1506,11 +1110,11 @@ export function LearningApp({
           </p>
           <div className="mb-5 flex overflow-hidden rounded-xl border border-[#2a2f3f]">
             {MODES.map(({ key, label, count }, i) => {
-              const on = exportMode === key;
+              const on = csv.exportMode === key;
               return (
                 <button
                   key={key}
-                  onClick={() => rebuild(key)}
+                  onClick={() => csv.rebuild(key)}
                   className="flex-1 py-2.5 text-xs font-medium transition"
                   style={{
                     borderRight: i < MODES.length - 1 ? "1px solid #2a2f3f" : "none",
@@ -1525,7 +1129,7 @@ export function LearningApp({
             })}
           </div>
 
-          {exportMode === "weak" && weakCount === 0 && (
+          {csv.exportMode === "weak" && weakCount === 0 && (
             <div className="mb-5 rounded-xl border border-[#0a2a1a] bg-[#061510] p-4 text-center">
               <p className="text-sm text-[#22c55e]">苦手問題なし</p>
               <p className="text-xs text-[#1a5a2a]">習得度 50% 以上の問題のみです</p>
@@ -1533,31 +1137,24 @@ export function LearningApp({
           )}
 
           <button
-            onClick={() => downloadCSV(`${currentSubjectSlug}-${exportMode}.csv`, csvText)}
+            onClick={() => downloadCSV(`${currentSubjectSlug}-${csv.exportMode}.csv`, csv.csvText)}
             className="mb-2 w-full rounded-xl bg-[#3b82f6] py-3.5 text-sm font-medium text-white transition hover:bg-[#60a5fa]"
           >
             ダウンロード
           </button>
           <button
-            onClick={async () => {
-              try {
-                await navigator.clipboard.writeText(csvText);
-                setCopyMsg("コピーしました");
-              } catch {
-                setCopyMsg("コピー不可 — テキストを手動で選択してください");
-              }
-            }}
+            onClick={csv.copyToClipboard}
             className="mb-2 w-full rounded-xl border border-[#2a2f3f] py-3 text-sm text-[#8892a4] transition hover:border-[#3a4050] hover:text-[#c0c8d8]"
           >
             クリップボードにコピー
           </button>
-          {copyMsg && (
-            <p className="mb-3 text-center text-xs text-[#8892a4]">{copyMsg}</p>
+          {csv.copyMsg && (
+            <p className="mb-3 text-center text-xs text-[#8892a4]">{csv.copyMsg}</p>
           )}
 
           <textarea
             readOnly
-            value={csvText}
+            value={csv.csvText}
             onFocus={(e) => e.target.select()}
             className="mb-4 min-h-[180px] w-full resize-y overflow-x-auto rounded-xl border border-[#2a2f3f] bg-[#141720] px-3 py-2.5 font-mono text-[11px] text-[#8892a4]"
           />
@@ -2106,7 +1703,7 @@ export function LearningApp({
                 : "答えが浮かんだら選択肢を表示する"}
             </p>
             <button
-              onClick={() => setChoicesHidden(false)}
+              onClick={revealChoices}
               className="rounded-lg bg-[#3b82f6] px-5 py-2 text-sm font-medium text-white transition hover:bg-[#60a5fa]"
             >
               選択肢を表示
@@ -2120,7 +1717,7 @@ export function LearningApp({
                 <button
                   key={i}
                   onClick={() =>
-                    answered ? undefined : q.question_type === "multi" ? toggleMulti(i) : setPicked(i)
+                    answered ? undefined : q.question_type === "multi" ? toggleMulti(i) : pick(i)
                   }
                   disabled={answered}
                   className={`block w-full rounded-xl border px-4 py-3.5 text-left text-sm leading-relaxed transition ${getChoiceClass(i)}`}
