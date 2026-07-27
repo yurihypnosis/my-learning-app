@@ -27,6 +27,7 @@ export function MindsetClient() {
   const [openId, setOpenId] = useState<string | null>(null);
 
   const [nowMs, setNowMs] = useState<number | null>(null);
+  // eslint-disable-next-line react-hooks/set-state-in-effect -- SSR と初回描画を一致させるため mount 後に実時刻を確定する
   useEffect(() => setNowMs(Date.now()), []);
 
   const today = nowMs === null ? null : pickOfDay(nowMs);

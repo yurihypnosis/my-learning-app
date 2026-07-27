@@ -63,6 +63,7 @@ export function RoadmapClient({ acePassProb, userId, initialDoc, examGoals }: Pr
 
   // 残り日数はローカル日付で計算する（SSR と食い違わないよう mount 後に確定）。
   const [nowMs, setNowMs] = useState<number | null>(null);
+  // eslint-disable-next-line react-hooks/set-state-in-effect -- SSR と初回描画を一致させるため mount 後に実時刻を確定する
   useEffect(() => setNowMs(Date.now()), []);
 
   const sortedGoals = useMemo(
