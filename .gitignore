@@ -36,4 +36,4 @@ supabase/.branches
 supabase/.temp
 
 # local task tracking
-TODO.md
+/tasks/
