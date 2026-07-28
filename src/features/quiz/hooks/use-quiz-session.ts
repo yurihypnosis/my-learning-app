@@ -131,6 +131,9 @@ export function sessionReducer(s: SessionState, a: Action): SessionState {
     case "SET_SPEAK_CUE":
       // 値が変わらないときは再レンダリングを起こさない（useState と同じ挙動）
       return s.speakCue === a.value ? s : { ...s, speakCue: a.value };
+    default:
+      // Action 型の網羅は switch 済み。型を迂回した呼び出しでも state を壊さない
+      return s;
   }
 }
 
