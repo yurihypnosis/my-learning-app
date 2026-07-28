@@ -1,6 +1,6 @@
-import { type ProgressMap } from "@/lib/quiz/selection";
-import { calcMasteryStats } from "@/lib/quiz/stats";
-import { type QuizQuestion } from "@/lib/quiz/types";
+import { type ProgressMap } from "@/features/quiz/lib/selection";
+import { calcMasteryStats } from "@/features/quiz/lib/stats";
+import { type QuizQuestion } from "@/features/quiz/lib/types";
 import { type Screen } from "@/features/quiz/hooks/use-screen";
 import { useQuizSession } from "@/features/quiz/hooks/use-quiz-session";
 import { WEAK_SESSION_MAX } from "@/features/quiz/lib/constants";

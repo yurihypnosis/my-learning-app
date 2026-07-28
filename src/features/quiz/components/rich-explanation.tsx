@@ -1,4 +1,4 @@
-import { type ExplanationData } from "@/lib/quiz/types";
+import { type ExplanationData } from "@/features/quiz/lib/types";
 
 export function RichExplanation({ data }: { data: ExplanationData }) {
   const lbl = "mb-2 text-[10px] font-semibold uppercase tracking-widest text-[#555e70]";

@@ -7,7 +7,7 @@ import {
   MINDSET_DATA,
   type MCategory,
   type MPrinciple,
-} from "@/lib/mindset";
+} from "@/features/mindset/lib/mindset";
 
 // 「今日の視点」は日付で決める。毎日ひとつだけ回ってくるほうが読む。
 // SSR と食い違わないよう、日付の確定は mount 後に行う（ロードマップと同じ作法）。

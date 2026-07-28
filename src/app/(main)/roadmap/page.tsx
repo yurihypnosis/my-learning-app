@@ -1,10 +1,10 @@
-import { createServerSupabaseClient } from "@/lib/supabase/server";
+import { createServerSupabaseClient } from "@/shared/lib/supabase/server";
 import {
   DEFAULT_ROADMAP,
   defaultDocWithLegacyDone,
   isRoadmapDoc,
   type RoadmapDoc,
-} from "@/lib/roadmap";
+} from "@/features/roadmap/lib/roadmap";
 import { RoadmapClient } from "./roadmap-client";
 
 export const dynamic = "force-dynamic";

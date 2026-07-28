@@ -1,12 +1,12 @@
-import { getProgress, totalCorrect, totalWrong, type ProgressMap } from "@/lib/quiz/selection";
+import { getProgress, totalCorrect, totalWrong, type ProgressMap } from "@/features/quiz/lib/selection";
 import {
   type ExamGroup,
   type SectionQuestionRef,
   analyzeSections,
   sectionOverview,
   weakReviewPool,
-} from "@/lib/quiz/stats";
-import { type QuizQuestion } from "@/lib/quiz/types";
+} from "@/features/quiz/lib/stats";
+import { type QuizQuestion } from "@/features/quiz/lib/types";
 import { type Screen } from "@/features/quiz/hooks/use-screen";
 import { CONFIDENCE_COLORS, CONFIDENCE_LABELS } from "@/features/quiz/lib/constants";
 

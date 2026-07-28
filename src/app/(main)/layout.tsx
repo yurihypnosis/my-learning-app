@@ -1,6 +1,6 @@
 import { redirect } from "next/navigation";
-import { createServerSupabaseClient } from "@/lib/supabase/server";
-import { Header } from "@/components/header";
+import { createServerSupabaseClient } from "@/shared/lib/supabase/server";
+import { Header } from "@/shared/components/header";
 
 export default async function MainLayout({
   children,

@@ -1,4 +1,4 @@
-import { createServerSupabaseClient } from "@/lib/supabase/server";
+import { createServerSupabaseClient } from "@/shared/lib/supabase/server";
 import { LogClient } from "./log-client";
 
 export const dynamic = "force-dynamic";

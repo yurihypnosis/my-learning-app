@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import type { Textbook } from "@/lib/quiz/stats";
+import type { Textbook } from "@/features/quiz/lib/stats";
 import { useSupabaseClient } from "./use-supabase-client";
 
 type Params = {

@@ -1,8 +1,8 @@
 "use client";
 
 import { useState } from "react";
-import type { Progress, QuizQuestion } from "@/lib/quiz/types";
-import { getProgress, type ProgressMap } from "@/lib/quiz/selection";
+import type { Progress, QuizQuestion } from "@/features/quiz/lib/types";
+import { getProgress, type ProgressMap } from "@/features/quiz/lib/selection";
 import { useSupabaseClient } from "./use-supabase-client";
 
 type Params = {

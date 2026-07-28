@@ -1,5 +1,5 @@
-import { getProgress, totalWrong, type ProgressMap } from "@/lib/quiz/selection";
-import { type QuizQuestion } from "@/lib/quiz/types";
+import { getProgress, totalWrong, type ProgressMap } from "@/features/quiz/lib/selection";
+import { type QuizQuestion } from "@/features/quiz/lib/types";
 import { arraysEqual } from "@/features/quiz/lib/grading";
 import { useQuizSession } from "@/features/quiz/hooks/use-quiz-session";
 import type { PersistFn } from "@/features/quiz/hooks/use-progress";

@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
-import { createServerSupabaseClient } from "@/lib/supabase/server";
-import { type Card, gradeFromAnswer, newCard, review } from "@/lib/quiz/fsrs";
+import { createServerSupabaseClient } from "@/shared/lib/supabase/server";
+import { type Card, gradeFromAnswer, newCard, review } from "@/features/quiz/lib/fsrs";
 
 export const dynamic = "force-dynamic";
 

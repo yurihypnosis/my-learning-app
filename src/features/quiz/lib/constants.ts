@@ -1,4 +1,4 @@
-import { type Verdict } from "@/lib/quiz/readiness";
+import { type Verdict } from "@/features/quiz/lib/readiness";
 
 // 「苦手だけ演習」1セッションの上限。弱点順に上位から出す（多すぎる一括を避ける）。
 export const WEAK_SESSION_MAX = 30;

@@ -1,6 +1,6 @@
-import { getProgress, type ProgressMap } from "@/lib/quiz/selection";
-import { downloadCSV, type ExportMode } from "@/lib/quiz/csv";
-import { type QuizQuestion } from "@/lib/quiz/types";
+import { getProgress, type ProgressMap } from "@/features/quiz/lib/selection";
+import { downloadCSV, type ExportMode } from "@/features/quiz/lib/csv";
+import { type QuizQuestion } from "@/features/quiz/lib/types";
 import { type Screen } from "@/features/quiz/hooks/use-screen";
 import { useCsvExport } from "@/features/quiz/hooks/use-csv-export";
 

@@ -1,4 +1,4 @@
-import { createServerSupabaseClient } from "@/lib/supabase/server";
+import { createServerSupabaseClient } from "@/shared/lib/supabase/server";
 import { FlashcardsClient, type TermRow } from "./flashcards-client";
 
 export const dynamic = "force-dynamic";

@@ -1,9 +1,9 @@
 "use client";
 
 import { useEffect, useReducer } from "react";
-import type { Progress, QuizQuestion } from "@/lib/quiz/types";
-import { getProgress, shuffleOptions, type ProgressMap } from "@/lib/quiz/selection";
-import { calcMasteryStats } from "@/lib/quiz/stats";
+import type { Progress, QuizQuestion } from "@/features/quiz/lib/types";
+import { getProgress, shuffleOptions, type ProgressMap } from "@/features/quiz/lib/selection";
+import { calcMasteryStats } from "@/features/quiz/lib/stats";
 import { arraysEqual, fsrsFields } from "../lib/grading";
 import type { PersistFn, RecordAnswerFn } from "./use-progress";
 import type { Screen } from "./use-screen";

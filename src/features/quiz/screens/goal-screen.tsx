@@ -1,4 +1,4 @@
-import { type UserGoal } from "@/lib/quiz/stats";
+import { type UserGoal } from "@/features/quiz/lib/stats";
 import { type Screen } from "@/features/quiz/hooks/use-screen";
 
 interface GoalScreenProps {

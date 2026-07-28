@@ -1,11 +1,11 @@
 import { type useRouter } from "next/navigation";
-import { getProgress, isResting, type ProgressMap } from "@/lib/quiz/selection";
+import { getProgress, isResting, type ProgressMap } from "@/features/quiz/lib/selection";
 import {
   type ExamGroup,
   type UserGoal,
-} from "@/lib/quiz/stats";
-import { type Readiness, type estimatePassProbability } from "@/lib/quiz/readiness";
-import { type QuizQuestion } from "@/lib/quiz/types";
+} from "@/features/quiz/lib/stats";
+import { type Readiness, type estimatePassProbability } from "@/features/quiz/lib/readiness";
+import { type QuizQuestion } from "@/features/quiz/lib/types";
 import { type Screen } from "@/features/quiz/hooks/use-screen";
 import { useMenuSettings } from "@/features/quiz/hooks/use-menu-settings";
 import { useTextbooks } from "@/features/quiz/hooks/use-textbooks";

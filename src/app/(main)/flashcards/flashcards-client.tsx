@@ -7,8 +7,8 @@ import {
   categoryColor,
   type FlashCard,
   type FlashDeck,
-} from "@/lib/flashcards";
-import { createClient } from "@/lib/supabase/client";
+} from "@/features/flashcards/lib/flashcards";
+import { createClient } from "@/shared/lib/supabase/client";
 
 // 表示専用のシャッフル（Fisher-Yates）。Start 押下時にだけ回すので SSR とはずれない。
 function shuffled<T>(arr: T[]): T[] {

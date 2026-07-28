@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
-import { createClient } from "@/lib/supabase/client";
+import { createClient } from "@/shared/lib/supabase/client";
 import type { Json } from "@/types/database";
 import {
   newId,
@@ -10,7 +10,7 @@ import {
   type RPhase,
   type RStatus,
   type RoadmapDoc,
-} from "@/lib/roadmap";
+} from "@/features/roadmap/lib/roadmap";
 
 interface ExamGoal {
   examKey: string;

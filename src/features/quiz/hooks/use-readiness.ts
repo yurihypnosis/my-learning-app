@@ -1,9 +1,9 @@
 "use client";
 
 import { useMemo } from "react";
-import type { QuizQuestion } from "@/lib/quiz/types";
-import { getProgress, type ProgressMap } from "@/lib/quiz/selection";
-import type { SectionQuestionRef, UserGoal } from "@/lib/quiz/stats";
+import type { QuizQuestion } from "@/features/quiz/lib/types";
+import { getProgress, type ProgressMap } from "@/features/quiz/lib/selection";
+import type { SectionQuestionRef, UserGoal } from "@/features/quiz/lib/stats";
 import {
   type Readiness,
   computeReadiness,
@@ -11,7 +11,7 @@ import {
   examItemProb,
   passLineFor,
   retentionEstimate,
-} from "@/lib/quiz/readiness";
+} from "@/features/quiz/lib/readiness";
 
 function daysUntilDate(dateStr: string, nowMs: number): number {
   const target = new Date(dateStr + "T00:00:00");

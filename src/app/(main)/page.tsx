@@ -1,14 +1,14 @@
-import { createServerSupabaseClient } from "@/lib/supabase/server";
-import type { ProgressMap } from "@/lib/quiz/selection";
-import type { ExplanationData, Progress, QuizQuestion } from "@/lib/quiz/types";
+import { createServerSupabaseClient } from "@/shared/lib/supabase/server";
+import type { ProgressMap } from "@/features/quiz/lib/selection";
+import type { ExplanationData, Progress, QuizQuestion } from "@/features/quiz/lib/types";
 import {
   buildSubjectStats,
   examGroupKey,
   groupSubjectsByExam,
   type QuestionSubjectRef,
   type SectionQuestionRef,
-} from "@/lib/quiz/stats";
-import { capacityFromDailyCounts } from "@/lib/quiz/readiness";
+} from "@/features/quiz/lib/stats";
+import { capacityFromDailyCounts } from "@/features/quiz/lib/readiness";
 import { LearningApp } from "./learning-app";
 
 export const dynamic = "force-dynamic";

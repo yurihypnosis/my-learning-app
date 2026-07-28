@@ -2,8 +2,8 @@
 
 import { useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
-import { type QuizQuestion } from "@/lib/quiz/types";
-import { buildDeck, type ProgressMap } from "@/lib/quiz/selection";
+import { type QuizQuestion } from "@/features/quiz/lib/types";
+import { buildDeck, type ProgressMap } from "@/features/quiz/lib/selection";
 import {
   type UserGoal,
   type Textbook,
@@ -11,7 +11,7 @@ import {
   type SectionQuestionRef,
   weakReviewPool,
   isSpeakFirstSubject,
-} from "@/lib/quiz/stats";
+} from "@/features/quiz/lib/stats";
 import { useNow } from "@/features/quiz/hooks/use-now";
 import { useScreen } from "@/features/quiz/hooks/use-screen";
 import { useProgress } from "@/features/quiz/hooks/use-progress";

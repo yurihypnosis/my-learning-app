@@ -1,13 +1,13 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import type { QuizMode, QuizQuestion } from "@/lib/quiz/types";
+import type { QuizMode, QuizQuestion } from "@/features/quiz/lib/types";
 import {
   eligibleQuestions,
   getProgress,
   isResting,
   type ProgressMap,
-} from "@/lib/quiz/selection";
+} from "@/features/quiz/lib/selection";
 
 type Params = {
   categories: { id: string; name: string; color: string }[];

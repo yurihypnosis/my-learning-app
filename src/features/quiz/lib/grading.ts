@@ -1,5 +1,5 @@
-import type { Progress } from "@/lib/quiz/types";
-import { type Card, gradeFromAnswer, review } from "@/lib/quiz/fsrs";
+import type { Progress } from "@/features/quiz/lib/types";
+import { type Card, gradeFromAnswer, review } from "@/features/quiz/lib/fsrs";
 
 // 複数選択の一致判定（呼び出し側でソート済みの前提）
 export function arraysEqual(a: number[], b: number[]): boolean {

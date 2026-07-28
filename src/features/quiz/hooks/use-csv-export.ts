@@ -1,9 +1,9 @@
 "use client";
 
 import { useState } from "react";
-import type { QuizQuestion } from "@/lib/quiz/types";
-import type { ProgressMap } from "@/lib/quiz/selection";
-import { buildCSV, type ExportMode } from "@/lib/quiz/csv";
+import type { QuizQuestion } from "@/features/quiz/lib/types";
+import type { ProgressMap } from "@/features/quiz/lib/selection";
+import { buildCSV, type ExportMode } from "@/features/quiz/lib/csv";
 
 type Params = {
   questions: QuizQuestion[];

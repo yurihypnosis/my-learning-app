@@ -2,7 +2,7 @@
 
 import { useRouter } from "next/navigation";
 import { Home, LogOut } from "lucide-react";
-import { createClient } from "@/lib/supabase/client";
+import { createClient } from "@/shared/lib/supabase/client";
 
 export function Header({ email }: { email: string | null }) {
   const router = useRouter();
