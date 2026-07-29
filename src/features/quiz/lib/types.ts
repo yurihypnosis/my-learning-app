@@ -19,6 +19,8 @@ export interface ExplanationData {
   // 正解の書き方を示す短いコード片。コードで示す価値がある問題にのみ付く。
   snippet?: string;
   eg?: string;
+  // 図で見る。概念を1枚で示すインラインSVG（信頼できる自前データのみ。ダークテーマ配色で書く）。
+  viz?: string;
   // 実務での使いどころ・どう役立つか。概念を現場のユースケースに接続する。
   usecase?: string;
   vs?: string;

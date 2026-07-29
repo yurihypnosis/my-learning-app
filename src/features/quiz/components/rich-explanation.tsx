@@ -30,6 +30,16 @@ export function RichExplanation({ data }: { data: ExplanationData }) {
         </div>
       )}
 
+      {data.viz && (
+        <div>
+          <p className={lbl}>図で見る</p>
+          <div
+            className="overflow-x-auto rounded-xl bg-[#141720] px-4 py-4 [&_svg]:h-auto [&_svg]:w-full [&_svg]:max-w-[420px]"
+            dangerouslySetInnerHTML={{ __html: data.viz }}
+          />
+        </div>
+      )}
+
       {data.terms && data.terms.length > 0 && (
         <div>
           <p className={lbl}>キーワード</p>
