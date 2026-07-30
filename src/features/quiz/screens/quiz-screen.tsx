@@ -4,7 +4,11 @@ import { arraysEqual } from "@/features/quiz/lib/grading";
 import { useQuizSession } from "@/features/quiz/hooks/use-quiz-session";
 import type { PersistFn } from "@/features/quiz/hooks/use-progress";
 import { RichExplanation } from "@/features/quiz/components/rich-explanation";
-import { CONFIDENCE_COLORS, CONFIDENCE_LABELS } from "@/features/quiz/lib/constants";
+import {
+  COMPREHENSION_LEVELS,
+  CONFIDENCE_COLORS,
+  CONFIDENCE_LABELS,
+} from "@/features/quiz/lib/constants";
 
 interface QuizScreenProps {
   session: ReturnType<typeof useQuizSession>;
@@ -273,6 +277,38 @@ export function QuizScreen({ session, progressMap, persist, isSpeakFirstQ }: Qui
                 <p className="text-sm leading-7 text-[#c0c8d8]">{q.explanation}</p>
               )}
             </div>
+
+            {/* 不正解時の理解度の自己申告。「理解度で見直す」の並び替えに使う */}
+            {!isCorrect && (
+              <div>
+                <p className="mb-2 text-[10px] font-semibold uppercase tracking-widest text-[#555e70]">
+                  解説を読んで、いまの理解度は
+                </p>
+                <div className="flex overflow-hidden rounded-xl border border-[#2a2f3f]">
+                  {COMPREHENSION_LEVELS.map(({ level, label, color }) => {
+                    const on = p.understanding_level === level;
+                    return (
+                      <button
+                        key={level}
+                        onClick={() =>
+                          persist(q.id, { understanding_level: on ? 0 : level })
+                        }
+                        className="flex flex-1 items-center justify-center gap-1.5 border-r border-[#2a2f3f] py-2.5 text-xs font-medium last:border-r-0 transition"
+                        style={{
+                          background: on ? color + "18" : "transparent",
+                          color: on ? color : "#8892a4",
+                        }}
+                      >
+                        {on && (
+                          <span className="h-1.5 w-1.5 rounded-full" style={{ background: color }} />
+                        )}
+                        {label}
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
 
             {/* Memo */}
             <textarea

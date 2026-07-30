@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 
-export type Screen = "menu" | "quiz" | "done" | "analysis" | "export" | "goal";
+export type Screen = "menu" | "quiz" | "done" | "analysis" | "export" | "goal" | "comprehension";
 
 // 画面の切替と、問題集ピッカーの開閉。
 // ヘッダの Home ボタンからの合図で、内部画面(クイズ/分析など)を
