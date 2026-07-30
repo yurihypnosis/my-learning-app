@@ -146,6 +146,23 @@ export function LearningApp({
     );
   };
 
+  // テーマ横断演習: 試験区分の全セットから、選んだテーマ（分野名）の問題だけを
+  // 集めて出題する。進捗の記録は examQuestionSlug 経由で由来セットに帰属する。
+  const startThemeQuiz = (names: Set<string>, count: number, force = false) => {
+    const pool = examQuestions.filter((q) => names.has(q.category_name));
+    session.enterQuiz(
+      buildDeck({
+        questions: pool,
+        progressMap,
+        selectedCategoryIds: new Set(pool.map((q) => q.category_id)),
+        count,
+        mode: menu.mode,
+        now,
+        includeResting: force || menu.includeResting,
+      })
+    );
+  };
+
   const switchSubject = (slug: string) => {
     router.push(slug ? `/?subject=${slug}` : "/");
   };
@@ -192,6 +209,9 @@ export function LearningApp({
         textbooks={textbooks}
         examWeakPool={examWeakPool}
         isMultiSet={isMultiSet}
+        examQuestions={examQuestions}
+        examSections={examSections}
+        startThemeQuiz={startThemeQuiz}
         pickerOpen={pickerOpen}
         setPickerOpen={setPickerOpen}
         setScreen={setScreen}

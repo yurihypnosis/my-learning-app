@@ -2,8 +2,10 @@ import { type useRouter } from "next/navigation";
 import { getProgress, isResting, type ProgressMap } from "@/features/quiz/lib/selection";
 import {
   type ExamGroup,
+  type SectionQuestionRef,
   type UserGoal,
 } from "@/features/quiz/lib/stats";
+import { ThemePractice } from "@/features/quiz/components/theme-practice";
 import { type Readiness, type estimatePassProbability } from "@/features/quiz/lib/readiness";
 import { type QuizQuestion } from "@/features/quiz/lib/types";
 import { type Screen } from "@/features/quiz/hooks/use-screen";
@@ -30,6 +32,10 @@ interface MenuScreenProps {
   textbooks: ReturnType<typeof useTextbooks>;
   examWeakPool: QuizQuestion[];
   isMultiSet: boolean;
+  // テーマ横断演習（全セット横断・複数テーマ選択可）
+  examQuestions: QuizQuestion[];
+  examSections: SectionQuestionRef[];
+  startThemeQuiz: (names: Set<string>, count: number, force?: boolean) => void;
   pickerOpen: boolean;
   setPickerOpen: React.Dispatch<React.SetStateAction<boolean>>;
   setScreen: (s: Screen) => void;
@@ -58,6 +64,9 @@ export function MenuScreen({
   textbooks: tb,
   examWeakPool,
   isMultiSet,
+  examQuestions,
+  examSections,
+  startThemeQuiz,
   pickerOpen,
   setPickerOpen,
   setScreen,
@@ -520,6 +529,18 @@ export function MenuScreen({
                 : `${examWeakPool.length}問`}
             </span>
           </button>
+        )}
+
+        {/* テーマ横断演習（複数セット構成の試験のみ。セット内の分野選択とは独立） */}
+        {isMultiSet && (
+          <ThemePractice
+            examQuestions={examQuestions}
+            examSections={examSections}
+            progressMap={progressMap}
+            now={now}
+            includeResting={includeResting}
+            onStart={startThemeQuiz}
+          />
         )}
 
         {/* Categories */}
