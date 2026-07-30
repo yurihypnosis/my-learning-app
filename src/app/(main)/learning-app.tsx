@@ -26,7 +26,6 @@ import { GoalScreen } from "@/features/quiz/screens/goal-screen";
 import { MenuScreen } from "@/features/quiz/screens/menu-screen";
 import { ExportScreen } from "@/features/quiz/screens/export-screen";
 import { AnalysisScreen } from "@/features/quiz/screens/analysis-screen";
-import { ComprehensionScreen } from "@/features/quiz/screens/comprehension-screen";
 import { DoneScreen } from "@/features/quiz/screens/done-screen";
 import { QuizScreen } from "@/features/quiz/screens/quiz-screen";
 
@@ -234,18 +233,6 @@ export function LearningApp({
         backfilling={backfilling}
         backfillMsg={backfillMsg}
         runBackfill={runBackfill}
-        setScreen={setScreen}
-      />
-    );
-  }
-
-  if (screen === "comprehension") {
-    return (
-      <ComprehensionScreen
-        examQuestions={examQuestions}
-        progressMap={progressMap}
-        isMultiSet={isMultiSet}
-        startReview={session.startReview}
         setScreen={setScreen}
       />
     );

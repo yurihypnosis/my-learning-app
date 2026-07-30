@@ -715,7 +715,6 @@ export function MenuScreen({
             { label: "学習ログ",     action: () => router.push("/log") },
             { label: "思考フレーム", action: () => router.push("/mindset") },
             { label: "苦手分析",     action: () => setScreen("analysis") },
-            { label: "理解度で見直す", action: () => setScreen("comprehension") },
             {
               label: "書き出し",
               action: () => {

@@ -1,3 +1,4 @@
+import { useState } from "react";
 import { getProgress, totalCorrect, totalWrong, type ProgressMap } from "@/features/quiz/lib/selection";
 import {
   type ExamGroup,
@@ -8,7 +9,20 @@ import {
 } from "@/features/quiz/lib/stats";
 import { type QuizQuestion } from "@/features/quiz/lib/types";
 import { type Screen } from "@/features/quiz/hooks/use-screen";
-import { CONFIDENCE_COLORS, CONFIDENCE_LABELS } from "@/features/quiz/lib/constants";
+import {
+  CONFIDENCE_COLORS,
+  CONFIDENCE_LABELS,
+  COMPREHENSION_LEVELS,
+  WEAK_SESSION_MAX,
+} from "@/features/quiz/lib/constants";
+
+// 「弱点問題」の絞り込み条件。既定は正誤・演習量から出す弱点順、
+// 残り3つは不正解時に自己申告した理解度（1..3）で絞る（旧「理解度で見直す」画面を統合）。
+type WeakFilter = "all" | 1 | 2 | 3;
+const WEAK_FILTERS: { key: WeakFilter; label: string; color: string }[] = [
+  { key: "all", label: "弱点順", color: "#8892a4" },
+  ...COMPREHENSION_LEVELS.map((c) => ({ key: c.level as WeakFilter, label: c.label, color: c.color })),
+];
 
 interface AnalysisScreenProps {
   examSections: SectionQuestionRef[];
@@ -48,6 +62,8 @@ export function AnalysisScreen({
   const wrap = "flex flex-col items-center px-4 pb-28 pt-8";
   const container = "w-full max-w-[520px]";
 
+  const [weakFilter, setWeakFilter] = useState<WeakFilter>("all");
+
   // 試験全体（全Set合算）の分野別分析
   const sections = analyzeSections(examSections, progressMap);
   const overview = sectionOverview(sections);
@@ -71,8 +87,25 @@ export function AnalysisScreen({
     attempted === 0 ? "#555e70" : pct >= 70 ? "#22c55e" : pct >= 40 ? "#f59e0b" : "#ef4444";
   const overPct = Math.round(overview.mastery * 100);
 
-  // 弱点問題（試験区分の全セット横断・弱点順に上位8問）
-  const worst = weakReviewPool(examQuestions, progressMap, { limit: 8 });
+  // 自己申告した理解度（1..3）が付いている問題（不正解時にクイズ画面から申告）
+  const ratedQuestions = examQuestions.filter((q) => {
+    const lv = getProgress(progressMap, q.id).understanding_level;
+    return lv >= 1 && lv <= 3;
+  });
+  const countOfLevel = (level: number) =>
+    ratedQuestions.filter((q) => getProgress(progressMap, q.id).understanding_level === level).length;
+
+  // 弱点問題（試験区分の全セット横断）。既定は弱点順（正誤・演習量ベース）に上位8問、
+  // 理解度フィルタを選ぶと自己申告「わからない」順に切り替わる。
+  const worst =
+    weakFilter === "all"
+      ? weakReviewPool(examQuestions, progressMap, { limit: 8 })
+      : ratedQuestions
+          .filter((q) => getProgress(progressMap, q.id).understanding_level === weakFilter)
+          .sort(
+            (a, b) =>
+              totalWrong(b, getProgress(progressMap, b.id)) - totalWrong(a, getProgress(progressMap, a.id))
+          );
 
   // 確信度キャリブレーション（直近の解答: 自信度 × 正誤・全セット横断）。
   // 「自信あり」なのに誤答 = 思い込みの危険ゾーン（最優先で復習すべき）。
@@ -226,22 +259,58 @@ export function AnalysisScreen({
           </p>
           {worst.length > 0 && (
             <button
-              onClick={() => startReview(worst)}
+              onClick={() => startReview(worst.slice(0, WEAK_SESSION_MAX))}
               className="rounded-lg border border-[#2a2f3f] px-3 py-1 text-[11px] font-medium text-[#8892a4] transition hover:border-[#3b82f6] hover:text-white"
             >
               まとめて復習 →
             </button>
           )}
         </div>
+
+        {/* 絞り込み: 既定は弱点順、または不正解時に申告した理解度で絞る */}
+        <div className="mb-3 flex flex-wrap gap-1.5">
+          {WEAK_FILTERS.map(({ key, label, color }) => {
+            const on = weakFilter === key;
+            const n = key === "all" ? undefined : countOfLevel(key as number);
+            return (
+              <button
+                key={key}
+                onClick={() => setWeakFilter(key)}
+                className="flex items-center gap-1.5 rounded-full border px-3 py-1 text-xs transition"
+                style={{
+                  borderColor: on ? color + "55" : "#2a2f3f",
+                  color: on ? color : "#8892a4",
+                  background: on ? color + "0f" : "transparent",
+                }}
+              >
+                <span
+                  className="h-1.5 w-1.5 shrink-0 rounded-full"
+                  style={{ background: on ? color : "#3a4050" }}
+                />
+                {label}
+                {n !== undefined && <span className="text-[10px] tabular-nums opacity-60">{n}</span>}
+              </button>
+            );
+          })}
+        </div>
+
         <p className="mb-3 text-[10px] text-[#3a4050]">
           タップするとその問題だけを復習できます
         </p>
         <div className="mb-6 space-y-1.5">
           {worst.length === 0 && (
-            <p className="text-xs text-[#555e70]">弱点問題はありません（演習するとここに出ます）</p>
+            <p className="text-xs text-[#555e70]">
+              {weakFilter === "all"
+                ? "弱点問題はありません（演習するとここに出ます）"
+                : "この理解度で申告した問題はありません（不正解時に解説の下で申告できます）"}
+            </p>
           )}
           {worst.map((q) => {
             const p = getProgress(progressMap, q.id);
+            const understandingMeta =
+              p.understanding_level >= 1 && p.understanding_level <= 3
+                ? COMPREHENSION_LEVELS.find((c) => c.level === p.understanding_level)
+                : undefined;
             return (
               <button
                 key={q.id}
@@ -266,6 +335,11 @@ export function AnalysisScreen({
                     {p.last_confidence !== null && (
                       <span className="ml-2" style={{ color: CONFIDENCE_COLORS[(p.last_confidence ?? 1) - 1] }}>
                         {CONFIDENCE_LABELS[(p.last_confidence ?? 1) - 1]}
+                      </span>
+                    )}
+                    {understandingMeta && (
+                      <span className="ml-2" style={{ color: understandingMeta.color }}>
+                        {understandingMeta.label}
                       </span>
                     )}
                   </p>
