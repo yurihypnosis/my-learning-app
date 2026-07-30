@@ -179,6 +179,7 @@ select source_ref, clen, dmax from x where clen > dmax order by clen-dmax desc;"
 | `kid` | | ざっくり言うと。噛み砕いた 1〜2 文 |
 | `terms` | | キーワード。`[["用語","説明"], ...]` を 2〜4 個 |
 | `think` | ○ | 考え方。解法の流れ |
+| `calc` | | 手で計算してみる。小さい数字で全ステップを1行1手で（等幅・縦積み描画）。書き方は question-authoring-stats の「計算系解説の3段ロケット」 |
 | `snippet` | | 正しい書き方。コード/コマンドの模範解答。`<pre>` で等幅描画される |
 | `eg` | | たとえると。身近な比喩 |
 | `vs` | | 混同ポイント。紛らわしい選択肢との違い |

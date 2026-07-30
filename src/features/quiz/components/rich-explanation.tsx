@@ -60,6 +60,15 @@ export function RichExplanation({ data }: { data: ExplanationData }) {
         <p>{data.think}</p>
       </div>
 
+      {data.calc && (
+        <div>
+          <p className={lbl}>手で計算してみる</p>
+          <pre className="overflow-x-auto whitespace-pre-wrap rounded-xl bg-[#141720] px-4 py-3.5 font-mono text-xs leading-7 text-[#c0c8d8] tabular-nums">
+            {data.calc}
+          </pre>
+        </div>
+      )}
+
       {data.snippet && (
         <div>
           <p className={lbl}>正しい書き方</p>

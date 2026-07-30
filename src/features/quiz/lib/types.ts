@@ -16,6 +16,9 @@ export interface ExplanationData {
   kid?: string;
   terms?: [string, string][];
   think: string;
+  // 手で計算してみる。小さい数字で全ステップを1行1手で見せる（3段ロケットの②）。
+  // 数式が絡む問題にのみ付く。等幅で縦積み描画される。
+  calc?: string;
   // 正解の書き方を示す短いコード片。コードで示す価値がある問題にのみ付く。
   snippet?: string;
   eg?: string;
