@@ -110,6 +110,20 @@ stats-basics と同じく **1 subject に複数カテゴリ**で持つ（セッ�
 
 第六期で既出のコマンド（ls/cd/pwd/cp/mv/mkdir/cat/ps/kill/grep/find/chmod/chown/tar）とは重ならないようにする。投入前に既存問題文を軽く確認する。
 
+**第七期（sort 32〜34）は2026-08-02に投入済み**（テキスト処理: sort/uniq/wc/head/tail/sed/awk、ネットワーク: curl/wget/ping/ssh/scp/netstat、システム管理: top/df/du/free/useradd/passwd/sudo。計20問）。全35カテゴリ・219問。
+
+**第八期（sort 35〜37）— コマンドの覚え方さらに続き**: 「コマンド系を追加して」の指示が来たら、以下を追加する。第六・七期と同じ語源ベースの覚え方を踏襲。**Dockerコマンドはこのドリルでは扱わない**（別問題集 `dca`＝Docker Certified Associate で既に121問投入済みのため、重複を避ける）:
+
+| カテゴリ（完全一致で JOIN） | sort | 扱うコマンド例 |
+|---|---|---|
+| `よく使うコマンドの覚え方（基本操作の続き）` | 35 | rm, touch, less, diff, echo, alias, history |
+| `よく使うコマンドの覚え方（ディスク・マウント）` | 36 | mount, umount, ln, fdisk, mkfs, lsblk, dd |
+| `よく使うコマンドの覚え方（ネットワーク診断）` | 37 | traceroute, nslookup, dig, whois, hostname, ip |
+
+**第八期（sort 35〜37）は2026-08-02に投入済み**（基本操作の続き7問、ディスク・マウント7問、ネットワーク診断6問。計20問）。全38カテゴリ・239問。
+
+**さらに「コマンド系を追加して」の指示が来たら**、まだ扱っていないコマンドで次のカテゴリ（sort 38〜）を追加する。候補: シェルスクリプトでよく使うテスト系（`test`/`[`/`xargs`は既出）、`crontab`（cronの仕組みは既出だがコマンド名の由来は未出）、`journalctl`、`systemctl`（systemdの仕組みは既出だがコマンド名の由来は未出）、`man`（manual）、`which`/`whereis`、`export`、`env`、`nice`/`kill -9`、`tee`、`xargs`（find/xargsで仕組みは既出、名前の由来は未出）、`nl`、`cut`、`paste`、`comm`、`join`。**Dockerコマンドは引き続き扱わない**（`dca`問題集と重複するため）。既出コマンド一覧は都度 `db.sh query` で確認してから選ぶこと。
+
 新しいセットを足すときは stats-basics と同じ流儀（用語の依存順・重複回避）に従う。
 
 ## source_ref
