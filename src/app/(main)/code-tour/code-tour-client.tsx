@@ -2,7 +2,14 @@
 
 import { useMemo, useState } from "react";
 import Link from "next/link";
-import { CODE_TOUR_DATA, SECTION_META, type CtSection, type CtTopic } from "@/features/code-tour/lib/code-tour";
+import {
+  CODE_TOUR_DATA,
+  CODE_TOUR_EXERCISES,
+  SECTION_META,
+  type CtExercise,
+  type CtSection,
+  type CtTopic,
+} from "@/features/code-tour/lib/code-tour";
 import {
   DiagramHierarchy,
   DiagramFolders,
@@ -25,7 +32,8 @@ const DIAGRAMS: Record<CtTopic["diagram"], () => React.JSX.Element> = {
   "unknown-flow": DiagramUnknownCodeFlow,
 };
 
-const SECTION_ORDER: CtSection[] = ["map", "trace", "habit"];
+const SECTION_ORDER: CtSection[] = ["map", "trace", "habit", "practice"];
+const TOTAL_COUNT = CODE_TOUR_DATA.length + CODE_TOUR_EXERCISES.length;
 
 export function CodeTourClient() {
   const wrap = "flex flex-col items-center px-4 pb-28 pt-8";
@@ -38,6 +46,7 @@ export function CodeTourClient() {
     () => (filter === "all" ? CODE_TOUR_DATA : CODE_TOUR_DATA.filter((t) => t.section === filter)),
     [filter]
   );
+  const showExercises = filter === "all" || filter === "practice";
 
   return (
     <div className={wrap}>
@@ -59,7 +68,12 @@ export function CodeTourClient() {
             const active = filter === key;
             const color = key === "all" ? "#8892a4" : SECTION_META[key].color;
             const label = key === "all" ? "すべて" : SECTION_META[key].label;
-            const count = key === "all" ? CODE_TOUR_DATA.length : CODE_TOUR_DATA.filter((t) => t.section === key).length;
+            const count =
+              key === "all"
+                ? TOTAL_COUNT
+                : key === "practice"
+                  ? CODE_TOUR_EXERCISES.length
+                  : CODE_TOUR_DATA.filter((t) => t.section === key).length;
             return (
               <button
                 key={key}
@@ -89,6 +103,25 @@ export function CodeTourClient() {
             />
           ))}
         </div>
+
+        {/* ── 自分でやってみる ── */}
+        {showExercises && (
+          <div className="mt-2 space-y-2">
+            {filter === "all" && (
+              <p className="pb-1 pt-4 text-[10px] font-semibold uppercase tracking-widest" style={{ color: SECTION_META.practice.color }}>
+                {SECTION_META.practice.label} — {SECTION_META.practice.caption}
+              </p>
+            )}
+            {CODE_TOUR_EXERCISES.map((ex) => (
+              <ExerciseCard
+                key={ex.id}
+                ex={ex}
+                open={openId === ex.id}
+                onToggle={() => setOpenId((cur) => (cur === ex.id ? null : ex.id))}
+              />
+            ))}
+          </div>
+        )}
 
         <p className="mt-8 border-t border-[#1e222e] pt-4 text-[10px] leading-relaxed text-[#3f4757]">
           ここで身につける手順（grep起点で探す・データの流れで追う・テストを仕様書として読む）は、
@@ -161,6 +194,80 @@ function TopicCard({ t, open, onToggle }: { t: CtTopic; open: boolean; onToggle:
               <p className="text-[10px] font-semibold tracking-wider text-[#555e70]">実際に開いてみるファイル</p>
               <ul className="mt-1.5 space-y-1">
                 {t.files.map((f) => (
+                  <li key={f} className="font-mono text-[11px] leading-relaxed text-[#8892a4]">
+                    {f}
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// 練習は「予想してから答え合わせ」の2段階。開いた直後は課題だけを見せ、
+// 答え(reveal)はユーザーが自分で予想し終えてからボタンで開く別の状態にする。
+function ExerciseCard({ ex, open, onToggle }: { ex: CtExercise; open: boolean; onToggle: () => void }) {
+  const color = SECTION_META.practice.color;
+  const [revealed, setRevealed] = useState(false);
+
+  return (
+    <div
+      className="overflow-hidden rounded-xl border bg-[#151823] transition-colors"
+      style={{ borderColor: open ? color + "59" : "#2a2f3f" }}
+    >
+      <button
+        onClick={() => {
+          onToggle();
+          if (open) setRevealed(false); // 閉じるときは答えも畳んでおく
+        }}
+        aria-expanded={open}
+        className="flex w-full items-start gap-3 px-4 py-3.5 text-left"
+      >
+        <span className="mt-1.5 h-1.5 w-1.5 shrink-0 rounded-full" style={{ background: color }} />
+        <span className="min-w-0 flex-1">
+          <span className="text-[10px] font-semibold uppercase tracking-widest" style={{ color }}>
+            自分でやってみる
+          </span>
+          <span className="mt-0.5 block text-sm font-medium text-[#e6ebf5]">{ex.title}</span>
+        </span>
+        <span
+          className="mt-0.5 shrink-0 text-[10px] text-[#555e70] transition-transform"
+          style={{ transform: open ? "rotate(180deg)" : "none" }}
+        >
+          ▾
+        </span>
+      </button>
+
+      {open && (
+        <div className="border-t border-[#1e222e] px-4 py-4">
+          <p className="text-[10px] font-semibold tracking-wider text-[#555e70]">課題</p>
+          <p className="mt-1.5 text-[13px] leading-relaxed text-[#c0c8d8]">{ex.task}</p>
+
+          {!revealed ? (
+            <button
+              onClick={() => setRevealed(true)}
+              className="mt-4 w-full rounded-lg border py-2.5 text-xs font-medium transition"
+              style={{ borderColor: color + "59", color }}
+            >
+              予想したら答え合わせを見る
+            </button>
+          ) : (
+            <div className="mt-4 rounded-xl border p-3" style={{ borderColor: color + "40", background: color + "0d" }}>
+              <p className="text-[10px] font-semibold tracking-wider" style={{ color }}>
+                答え合わせ
+              </p>
+              <p className="mt-1.5 text-xs leading-[1.9] text-[#c0c8d8]">{ex.reveal}</p>
+            </div>
+          )}
+
+          {ex.files.length > 0 && (
+            <div className="mt-4 rounded-xl border border-[#2a2f3f] bg-[#0f1117]/60 p-3">
+              <p className="text-[10px] font-semibold tracking-wider text-[#555e70]">関係するファイル</p>
+              <ul className="mt-1.5 space-y-1">
+                {ex.files.map((f) => (
                   <li key={f} className="font-mono text-[11px] leading-relaxed text-[#8892a4]">
                     {f}
                   </li>

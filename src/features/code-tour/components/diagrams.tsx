@@ -327,11 +327,11 @@ export function DiagramTestAsSpec() {
         テスト名を読むだけで仕様がわかる
       </T>
       <Box x={20} y={28} w={300} h={30} stroke={ACCENT} fill="#1a1e29" />
-      <T x={170} y={44} size={7.5} fill={ACCENT2}>
-        test(同じ日に連続で解いてもストリークは1のまま)
+      <T x={170} y={44} size={7.3} fill={ACCENT2}>
+        it(&quot;excludes never-attempted questions&quot;)
       </T>
       <T x={170} y={56} size={6.5} fill={MUTED}>
-        ↳ fsrs.test.ts / streak.test.ts の実例
+        ↳ weak-review.test.ts の実例
       </T>
       <Box x={20} y={68} w={300} h={44} stroke={LINE} />
       <T x={170} y={84} size={7.5} fill={MUTED}>
