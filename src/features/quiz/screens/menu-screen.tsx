@@ -735,6 +735,7 @@ export function MenuScreen({
             { label: "ロードマップ", action: () => router.push("/roadmap") },
             { label: "学習ログ",     action: () => router.push("/log") },
             { label: "思考フレーム", action: () => router.push("/mindset") },
+            { label: "コードの読み方", action: () => router.push("/code-tour") },
             { label: "苦手分析",     action: () => setScreen("analysis") },
             {
               label: "書き出し",
