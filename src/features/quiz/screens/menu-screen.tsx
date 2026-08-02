@@ -1,3 +1,4 @@
+import { useState } from "react";
 import { type useRouter } from "next/navigation";
 import { getProgress, isResting, type ProgressMap } from "@/features/quiz/lib/selection";
 import {
@@ -115,6 +116,10 @@ export function MenuScreen({
     return p.correct_count + p.wrong_count > 0;
   }).length;
   const countOptions = [5, 10, 20, eligible.length];
+
+  // 初めての問題だけ演習の出題数（既定は WEAK_SESSION_MAX 相当、明示的に選び直せる）
+  const [firstTimeCount, setFirstTimeCount] = useState(WEAK_SESSION_MAX);
+  const firstTimeCountOptions = [10, 20, WEAK_SESSION_MAX, examFirstTimePool.length];
 
   return (
     <div className={wrap}>
@@ -533,24 +538,49 @@ export function MenuScreen({
           </button>
         )}
 
-        {/* 初めての問題だけ演習（試験区分の全セット横断・未着手のみ・順不同） */}
+        {/* 初めての問題だけ演習（試験区分の全セット横断・未着手のみ・順不同・件数を選べる） */}
         {examFirstTimePool.length > 0 && (
-          <button
-            onClick={() => startReview(examFirstTimePool.slice(0, WEAK_SESSION_MAX))}
-            className="mb-6 flex w-full items-center justify-between gap-3 rounded-xl border border-[#1a2b3a] bg-[#0f171d] px-4 py-3.5 text-left transition hover:border-[#3b82f6]"
-          >
-            <div className="min-w-0">
-              <p className="text-sm font-medium text-white">初めての問題だけ演習</p>
-              <p className="text-xs text-[#8892a4]">
-                {isMultiSet ? "全セット横断・" : ""}まだ一度も解いていない問題だけ
-              </p>
+          <section className="mb-6 rounded-xl border border-[#1a2b3a] bg-[#0f171d] px-4 py-3.5">
+            <div className="mb-3 flex items-center justify-between gap-3">
+              <div className="min-w-0">
+                <p className="text-sm font-medium text-white">初めての問題だけ演習</p>
+                <p className="text-xs text-[#8892a4]">
+                  {isMultiSet ? "全セット横断・" : ""}まだ一度も解いていない問題だけ
+                </p>
+              </div>
+              <span className="shrink-0 rounded-lg bg-[#3b82f6]/15 px-3 py-1.5 text-xs font-semibold tabular-nums text-[#60a5fa]">
+                {examFirstTimePool.length}問
+              </span>
             </div>
-            <span className="shrink-0 rounded-lg bg-[#3b82f6]/15 px-3 py-1.5 text-xs font-semibold tabular-nums text-[#60a5fa]">
-              {examFirstTimePool.length > WEAK_SESSION_MAX
-                ? `${WEAK_SESSION_MAX} / ${examFirstTimePool.length}問`
-                : `${examFirstTimePool.length}問`}
-            </span>
-          </button>
+
+            <div className="mb-3 flex overflow-hidden rounded-xl border border-[#2a2f3f]">
+              {firstTimeCountOptions.map((n, i) => {
+                const on = firstTimeCount === n;
+                return (
+                  <button
+                    key={i}
+                    onClick={() => setFirstTimeCount(n)}
+                    className="flex-1 border-r border-[#2a2f3f] py-2 text-xs font-medium last:border-r-0 transition"
+                    style={{
+                      background: on ? "#1e2230" : "transparent",
+                      color: on ? "#e8eaf0" : "#8892a4",
+                    }}
+                  >
+                    {i === firstTimeCountOptions.length - 1 ? `全部 ${n}` : n}
+                  </button>
+                );
+              })}
+            </div>
+
+            <button
+              onClick={() =>
+                startReview(examFirstTimePool.slice(0, firstTimeCount || examFirstTimePool.length))
+              }
+              className="w-full rounded-xl border border-[#2a2f3f] py-3 text-sm font-medium text-[#60a5fa] transition hover:border-[#3b82f6]"
+            >
+              スタート — {Math.min(firstTimeCount || examFirstTimePool.length, examFirstTimePool.length)} 問
+            </button>
+          </section>
         )}
 
         {/* テーマ横断演習（複数セット構成の試験のみ。セット内の分野選択とは独立） */}
