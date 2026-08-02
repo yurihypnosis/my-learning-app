@@ -51,6 +51,7 @@ export function weakReviewPool(
   const scored: { q: QuizQuestion; score: number }[] = [];
   for (const q of questions) {
     const p = getProgress(progressMap, q.id);
+    if (p.excluded) continue; // 「もう出題しない」で除外済み
     if (p.correct_count + p.wrong_count === 0) continue; // 未着手は対象外
     const wronged = p.wrong_count > 0 || p.last_is_correct === false;
     const weak = masteryFromProgress(p) < th;

@@ -57,6 +57,7 @@ export function useProgress({
         understanding_level: next.understanding_level,
         memo: next.memo,
         last_confidence: next.last_confidence,
+        excluded: next.excluded,
       },
       { onConflict: "user_id,question_id" }
     );

@@ -161,6 +161,7 @@ export interface Database {
           fsrs_reps: number;
           fsrs_lapses: number;
           fsrs_state: string;
+          excluded: boolean;
           created_at: string;
           updated_at: string;
         };
@@ -184,6 +185,7 @@ export interface Database {
           fsrs_reps?: number;
           fsrs_lapses?: number;
           fsrs_state?: string;
+          excluded?: boolean;
         };
         Update: {
           correct_count?: number;
@@ -203,6 +205,7 @@ export interface Database {
           fsrs_reps?: number;
           fsrs_lapses?: number;
           fsrs_state?: string;
+          excluded?: boolean;
         };
         Relationships: [
           {

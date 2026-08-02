@@ -1,7 +1,7 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import { getProgress, isResting, type ProgressMap } from "@/features/quiz/lib/selection";
+import { getProgress, isEligible, type ProgressMap } from "@/features/quiz/lib/selection";
 import type { QuizQuestion } from "@/features/quiz/lib/types";
 import type { SectionQuestionRef } from "@/features/quiz/lib/stats";
 
@@ -52,7 +52,7 @@ export function ThemePractice({
         m.set(q.category_name, t);
       }
       t.total += 1;
-      if (!isResting(getProgress(progressMap, q.id), now)) t.active += 1;
+      if (isEligible(getProgress(progressMap, q.id), now)) t.active += 1;
     }
     return [...m.values()].sort(
       (a, b) =>
@@ -66,7 +66,7 @@ export function ThemePractice({
     [examQuestions, selNames]
   );
   const activePool = useMemo(
-    () => pool.filter((q) => includeResting || !isResting(getProgress(progressMap, q.id), now)),
+    () => pool.filter((q) => isEligible(getProgress(progressMap, q.id), now, includeResting)),
     [pool, progressMap, now, includeResting]
   );
 

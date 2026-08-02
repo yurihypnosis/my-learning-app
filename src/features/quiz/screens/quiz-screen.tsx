@@ -247,6 +247,32 @@ export function QuizScreen({ session, progressMap, persist, isSpeakFirstQ }: Qui
               </div>
             </div>
 
+            {/* 確信を持って正解した問題は、これ以上出す意味が薄いので任意で除外できる */}
+            {isCorrect && confidence === 1 && (
+              <div className="flex items-center gap-2">
+                {p.excluded ? (
+                  <>
+                    <span className="rounded-lg border border-[#22c55e] bg-[#22c55e18] px-3 py-1.5 text-xs text-[#22c55e]">
+                      もう出題しません
+                    </span>
+                    <button
+                      onClick={() => persist(q.id, { excluded: false })}
+                      className="text-[10px] text-[#555e70] underline decoration-dotted transition hover:text-[#8892a4]"
+                    >
+                      取り消す
+                    </button>
+                  </>
+                ) : (
+                  <button
+                    onClick={() => persist(q.id, { excluded: true })}
+                    className="rounded-lg border border-[#2a2f3f] px-3 py-1.5 text-xs text-[#8892a4] transition hover:border-[#22c55e] hover:text-[#22c55e]"
+                  >
+                    もう出題しない
+                  </button>
+                )}
+              </div>
+            )}
+
             {/* Speak-First: 口頭産出の自己申告。false の問題は苦手だけ演習に流入する */}
             {speakFirst && (
               <div className="flex items-center gap-2">

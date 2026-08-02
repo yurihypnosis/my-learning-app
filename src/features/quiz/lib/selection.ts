@@ -47,6 +47,11 @@ export function isResting(p: Progress, now: number): boolean {
   return twoWeekRule || oneWeekRule;
 }
 
+// 出題対象かどうか（休眠中でなく、かつ「もう出題しない」で除外されていない）。
+export function isEligible(p: Progress, now: number, includeResting = false): boolean {
+  return !p.excluded && (includeResting || !isResting(p, now));
+}
+
 function shuffle<T>(arr: T[]): T[] {
   const a = [...arr];
   for (let i = a.length - 1; i > 0; i--) {
@@ -120,7 +125,7 @@ export function eligibleQuestions(
   return questions.filter(
     (q) =>
       selectedCategoryIds.has(q.category_id) &&
-      (includeResting || !isResting(getProgress(progressMap, q.id), now))
+      isEligible(getProgress(progressMap, q.id), now, includeResting)
   );
 }
 
