@@ -25,8 +25,9 @@ G検定は「広く浅く・概念の弁別」、E資格は**JDLA認定の講座
 | slug | 名前 | 問題数 |
 |---|---|---|
 | `e-shikaku` | E資格（JDLA Deep Learning for ENGINEER） Set A | 52問（2026-08-02） |
+| `e-shikaku-b` | E資格（JDLA Deep Learning for ENGINEER） Set B | 42問（2026-08-02、viz8・calc5）。Set Aと重複しないテーマ中心（SVD・情報理論の発展、Random Forest対勾配ブースティング、受容野、Attention内部構造、物体検出・生成モデルの発展形、距離学習・メタ学習・XAI、連合学習の分類など） |
 
-新しいセットを足すときは `e-shikaku-b` と続ける（`subjects.sort_order` は 180 を起点に。既存の最大は kcna の 170）。
+新しいセットを足すときは `e-shikaku-c` と続ける（`subjects.sort_order` は 182 から。既存の最大は e-shikaku-b の 181）。カテゴリ名(5個)は各セット共通。
 
 ```sql
 INSERT INTO public.subjects (slug, name, description, color, sort_order)
