@@ -19,6 +19,8 @@ description: この学習アプリの問題集に問題・解説を追加/修正
 | G検定 (JDLA) | `question-authoring-g-kentei` |
 | 英語・句動詞 (Speak-First) | `question-authoring-pv` |
 | 統計学の基礎（図解ドリル） | `question-authoring-stats` |
+| Linuxの教科書（図解ドリル） | `question-authoring-linux` |
+| KCNA (Kubernetes and Cloud Native Associate) | `question-authoring-kcna` |
 
 新しい試験を足すときは、既存の試験別スキルを雛形にして 1 枚追加する。
 
