@@ -3,7 +3,7 @@
 import { useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { type QuizQuestion } from "@/features/quiz/lib/types";
-import { buildDeck, type ProgressMap } from "@/features/quiz/lib/selection";
+import { buildDeck, getProgress, shuffle, type ProgressMap } from "@/features/quiz/lib/selection";
 import {
   type UserGoal,
   type Textbook,
@@ -125,6 +125,17 @@ export function LearningApp({
     () => weakReviewPool(examQuestions, progressMap),
     [examQuestions, progressMap]
   );
+  // 試験区分の全セットを横断した「一度も解答していない」問題プール（順不同でシャッフル済み）。
+  const examFirstTimePool = useMemo(
+    () =>
+      shuffle(
+        examQuestions.filter((q) => {
+          const p = getProgress(progressMap, q.id);
+          return !p.excluded && p.correct_count + p.wrong_count === 0;
+        })
+      ),
+    [examQuestions, progressMap]
+  );
   // この試験区分が複数セットか（横断であることを UI で示すかの判定）。
   const isMultiSet = useMemo(
     () => (examGroups.find((g) => g.examKey === currentExamKey)?.sets.length ?? 1) > 1,
@@ -208,6 +219,7 @@ export function LearningApp({
         menu={menu}
         textbooks={textbooks}
         examWeakPool={examWeakPool}
+        examFirstTimePool={examFirstTimePool}
         isMultiSet={isMultiSet}
         examQuestions={examQuestions}
         examSections={examSections}

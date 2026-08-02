@@ -31,6 +31,7 @@ interface MenuScreenProps {
   menu: ReturnType<typeof useMenuSettings>;
   textbooks: ReturnType<typeof useTextbooks>;
   examWeakPool: QuizQuestion[];
+  examFirstTimePool: QuizQuestion[];
   isMultiSet: boolean;
   // テーマ横断演習（全セット横断・複数テーマ選択可）
   examQuestions: QuizQuestion[];
@@ -63,6 +64,7 @@ export function MenuScreen({
   menu,
   textbooks: tb,
   examWeakPool,
+  examFirstTimePool,
   isMultiSet,
   examQuestions,
   examSections,
@@ -527,6 +529,26 @@ export function MenuScreen({
               {examWeakPool.length > WEAK_SESSION_MAX
                 ? `上位${WEAK_SESSION_MAX} / ${examWeakPool.length}問`
                 : `${examWeakPool.length}問`}
+            </span>
+          </button>
+        )}
+
+        {/* 初めての問題だけ演習（試験区分の全セット横断・未着手のみ・順不同） */}
+        {examFirstTimePool.length > 0 && (
+          <button
+            onClick={() => startReview(examFirstTimePool.slice(0, WEAK_SESSION_MAX))}
+            className="mb-6 flex w-full items-center justify-between gap-3 rounded-xl border border-[#1a2b3a] bg-[#0f171d] px-4 py-3.5 text-left transition hover:border-[#3b82f6]"
+          >
+            <div className="min-w-0">
+              <p className="text-sm font-medium text-white">初めての問題だけ演習</p>
+              <p className="text-xs text-[#8892a4]">
+                {isMultiSet ? "全セット横断・" : ""}まだ一度も解いていない問題だけ
+              </p>
+            </div>
+            <span className="shrink-0 rounded-lg bg-[#3b82f6]/15 px-3 py-1.5 text-xs font-semibold tabular-nums text-[#60a5fa]">
+              {examFirstTimePool.length > WEAK_SESSION_MAX
+                ? `${WEAK_SESSION_MAX} / ${examFirstTimePool.length}問`
+                : `${examFirstTimePool.length}問`}
             </span>
           </button>
         )}

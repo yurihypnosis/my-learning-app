@@ -1,6 +1,7 @@
 import { type Verdict } from "@/features/quiz/lib/readiness";
 
-// 「苦手だけ演習」1セッションの上限。弱点順に上位から出す（多すぎる一括を避ける）。
+// 「苦手だけ演習」「初めての問題だけ演習」など、特化セッション1回あたりの出題数上限。
+// 多すぎる一括出題を避けるための共通の上限値。
 export const WEAK_SESSION_MAX = 30;
 
 export const VERDICT_META: Record<Verdict, { label: string; color: string }> = {
