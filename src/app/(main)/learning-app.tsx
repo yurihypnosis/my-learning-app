@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useCallback, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { type QuizQuestion } from "@/features/quiz/lib/types";
 import { buildDeck, getProgress, shuffle, type ProgressMap } from "@/features/quiz/lib/selection";
@@ -28,6 +28,11 @@ import { ExportScreen } from "@/features/quiz/screens/export-screen";
 import { AnalysisScreen } from "@/features/quiz/screens/analysis-screen";
 import { DoneScreen } from "@/features/quiz/screens/done-screen";
 import { QuizScreen } from "@/features/quiz/screens/quiz-screen";
+import { usePageHeader, useCurrentSubject } from "@/shared/components/app-shell";
+import type { WeeklyBar } from "@/features/quiz/components/dashboard-parts";
+import type { TrendDay } from "@/features/quiz/components/trend-card";
+
+export type { WeeklyBar } from "@/features/quiz/components/dashboard-parts";
 
 interface Props {
   userId: string;
@@ -35,7 +40,8 @@ interface Props {
   currentSubjectSlug: string;
   subjectName: string;
   examGroups: ExamGroup[];
-  examSections: SectionQuestionRef[];
+  // 分野名 → 表示順。examSections はこれと examQuestions から組み立てる。
+  sectionSort: Record<string, number>;
   categories: { id: string; name: string; color: string }[];
   questions: QuizQuestion[];
   // 現在の試験区分に属する全セットの問題（横断の苦手演習・分析用）。
@@ -50,6 +56,14 @@ interface Props {
   // 試験区分ごとの教科書リンク（DB: user_textbooks）。
   initialTextbooks: Textbook[];
   dailyCapacity: number;
+  // 連続学習日数と直近7日の解答実績（ダッシュボードの表示専用）。
+  streak: number;
+  weekly: WeeklyBar[];
+  // 推移グラフ（この試験区分の日別 解答/正答/確信度）
+  trendDays: TrendDay[];
+  todayKey: string;
+  // サイドバーから ?screen= で直接開かれた画面。
+  requestedScreen?: string;
 }
 
 export function LearningApp({
@@ -58,7 +72,7 @@ export function LearningApp({
   currentSubjectSlug,
   subjectName,
   examGroups,
-  examSections,
+  sectionSort,
   categories,
   questions,
   examQuestions,
@@ -69,12 +83,37 @@ export function LearningApp({
   initialGoal,
   initialTextbooks,
   dailyCapacity,
+  streak,
+  weekly,
+  trendDays,
+  todayKey,
+  requestedScreen,
 }: Props) {
   const router = useRouter();
   const now = useNow();
-  const { screen, setScreen, pickerOpen, setPickerOpen } = useScreen();
+  const { screen, setScreen } = useScreen(requestedScreen);
   // 分野別 苦手マップで開いている分野（分析画面だけのローカル表示状態）
   const [expandedSection, setExpandedSection] = useState<string | null>(null);
+
+  // トップバーの見出しは画面ごとに切り替える（シェルはレイアウト側にある）。
+  const header =
+    screen === "analysis"
+      ? { t: "苦手分析", s: `${examName} ・ 全セット横断`, nav: "/?screen=analysis" }
+      : screen === "export"
+        ? { t: "書き出し", s: `${subjectName} の解答データを CSV に`, nav: "/?screen=export" }
+        : screen === "goal"
+          ? { t: "試験日を設定", s: examName, nav: "/" }
+          : screen === "quiz"
+            ? { t: `${subjectName} ・ 演習中`, s: "", nav: "/" }
+            : screen === "done"
+              ? { t: "おつかれさま", s: "このセッションの結果", nav: "/" }
+              : {
+                  t: "ダッシュボード",
+                  s: `${examName} の状況（トップバーで「すべて」に戻せます）`,
+                  nav: "/",
+                };
+  usePageHeader(header.t, header.s, header.nav);
+  useCurrentSubject(currentSubjectSlug, subjectName);
 
   // 問題集ピッカーは試験単位に折りたたみ、1試験だけ展開する（学習中の試験を初期展開）。
   const currentExamKey = useMemo(
@@ -91,9 +130,43 @@ export function LearningApp({
 
   const menu = useMenuSettings({ categories, questions, progressMap, now, currentExamKey });
 
+  // 「問題 × 分野(カテゴリ)」カタログ。examQuestions から導出するのでサーバから運ばない。
+  const examSections = useMemo<SectionQuestionRef[]>(
+    () =>
+      examQuestions.map((q) => ({
+        id: q.id,
+        slug: examQuestionSlug[q.id] ?? "",
+        section: q.category_name,
+        color: q.category_color,
+        sort: sectionSort[q.category_name] ?? 0,
+      })),
+    [examQuestions, examQuestionSlug, sectionSort]
+  );
+
   // Speak-First 科目か（横断苦手デッキでは問題ごとに由来セットで判定）
   const isSpeakFirstQ = (q: QuizQuestion) =>
     isSpeakFirstSubject(examQuestionSlug[q.id] ?? currentSubjectSlug);
+
+  // 現在セット以外の問題は初期表示では本文だけを持っている（解説だけで数百KBあるため）。
+  // 出題直前に、選択肢が空のものだけまとめて取り直す。
+  const hydrate = useCallback(async (qs: QuizQuestion[]): Promise<QuizQuestion[]> => {
+    const missing = qs.filter((q) => q.options.length === 0);
+    if (missing.length === 0) return qs;
+    try {
+      const res = await fetch("/api/questions", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ ids: missing.map((q) => q.id) }),
+      });
+      if (!res.ok) return qs;
+      const { questions: full } = (await res.json()) as { questions: QuizQuestion[] };
+      const byId = new Map(full.map((q) => [q.id, q]));
+      return qs.map((q) => byId.get(q.id) ?? q);
+    } catch {
+      // 取得に失敗しても本文だけで先へ進める（選択肢が出ないので事故には気づける）
+      return qs;
+    }
+  }, []);
 
   const session = useQuizSession({
     screen,
@@ -104,11 +177,12 @@ export function LearningApp({
     recordAnswer,
     recallMode: menu.recallMode,
     isSpeakFirstQ,
+    hydrate,
   });
 
   const examGoal = useExamGoal({ userId, goalExamKey, initialGoal });
   const textbooks = useTextbooks({ userId, goalExamKey, initialTextbooks });
-  const csv = useCsvExport({ questions, progressMap, now });
+  const csv = useCsvExport({ questions, progressMap, now, enabled: screen === "export" });
   const { backfilling, backfillMsg, runBackfill } = useFsrsBackfill();
   const { readiness, passEstimate } = useReadiness({
     examSections,
@@ -186,6 +260,15 @@ export function LearningApp({
     );
   }
 
+  // セット横断の演習は、出題直前に問題本体を取りに行く。その待ち時間の目印。
+  const loadingOverlay = session.deckLoading ? (
+    <div className="fixed inset-0 z-[900] flex items-center justify-center bg-[#0f1117]/70">
+      <div className="rounded-xl border border-border bg-card px-5 py-3 text-xs text-muted">
+        出題を準備しています…
+      </div>
+    </div>
+  ) : null;
+
   if (screen === "goal") {
     return (
       <GoalScreen
@@ -202,6 +285,7 @@ export function LearningApp({
 
   if (screen === "menu") {
     return (
+      <>
       <MenuScreen
         subjectName={subjectName}
         subjects={subjects}
@@ -224,15 +308,18 @@ export function LearningApp({
         examQuestions={examQuestions}
         examSections={examSections}
         startThemeQuiz={startThemeQuiz}
-        pickerOpen={pickerOpen}
-        setPickerOpen={setPickerOpen}
         setScreen={setScreen}
         startQuiz={startQuiz}
         startReview={session.startReview}
         switchSubject={switchSubject}
-        csvRefresh={csv.refresh}
         router={router}
+        streak={streak}
+        weekly={weekly}
+        trendDays={trendDays}
+        todayKey={todayKey}
       />
+      {loadingOverlay}
+      </>
     );
   }
 
@@ -250,6 +337,7 @@ export function LearningApp({
 
   if (screen === "analysis") {
     return (
+      <>
       <AnalysisScreen
         examSections={examSections}
         progressMap={progressMap}
@@ -267,11 +355,14 @@ export function LearningApp({
         runBackfill={runBackfill}
         setScreen={setScreen}
       />
+      {loadingOverlay}
+      </>
     );
   }
 
   if (screen === "done") {
     return (
+      <>
       <DoneScreen
         session={session}
         questions={questions}
@@ -279,6 +370,8 @@ export function LearningApp({
         examWeakPool={examWeakPool}
         setScreen={setScreen}
       />
+      {loadingOverlay}
+      </>
     );
   }
 

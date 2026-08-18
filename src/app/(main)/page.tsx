@@ -1,35 +1,98 @@
-import { createServerSupabaseClient } from "@/shared/lib/supabase/server";
-import type { ProgressMap } from "@/features/quiz/lib/selection";
-import type { ExplanationData, Progress, QuizQuestion } from "@/features/quiz/lib/types";
+import { getServerSupabase, getSessionUser } from "@/shared/lib/supabase/server";
+import type { ExplanationData, QuizQuestion } from "@/features/quiz/lib/types";
+import { examGroupKey, groupSubjectsByExam } from "@/features/quiz/lib/stats";
 import {
-  buildSubjectStats,
-  examGroupKey,
-  groupSubjectsByExam,
-  type QuestionSubjectRef,
-  type SectionQuestionRef,
-} from "@/features/quiz/lib/stats";
+  fetchDailyBreakdown,
+  fetchDailyCounts,
+  fetchFamilyProgress,
+  fetchSubjectStats,
+  jstDayKey,
+  toSubjectStats,
+} from "@/features/quiz/lib/server-data";
 import { capacityFromDailyCounts } from "@/features/quiz/lib/readiness";
 import { LearningApp } from "./learning-app";
+import { OverviewDashboard } from "./overview-dashboard";
 
 export const dynamic = "force-dynamic";
+
+// 学習アクティビティ・連続学習日数を見るのに十分な日数。
+// これを超える連続記録は表示上ここで頭打ちになる。
+const ACTIVITY_DAYS = 120;
+
+// 現在セット以外の問題は本文と分類だけを送り、選択肢・解説は演習開始時に取りに行く。
+// 解説(explanation_data)は 1試験区分で 800KB を超えることがあり、初期表示の主因だった。
+const FULL_COLS =
+  "id, subject_id, category_id, source_ref, question_text, code, options, correct_index, correct_indices, question_type, explanation, explanation_data, initial_wrong_weight";
+const LIGHT_COLS = "id, subject_id, category_id, question_text, initial_wrong_weight";
+
+// 試験区分が決まらないと成立しない画面。?screen= で直接来た場合だけ、
+// 前回学習した問題集にフォールバックして行き止まりにしない。
+const SUBJECT_SCOPED_SCREENS = ["analysis", "export", "goal"];
+
+interface AnyQRow {
+  id: string;
+  subject_id: string;
+  category_id: string;
+  question_text: string;
+  initial_wrong_weight: number;
+  source_ref?: string | null;
+  code?: string | null;
+  options?: unknown;
+  correct_index?: number | null;
+  correct_indices?: unknown;
+  question_type?: string | null;
+  explanation?: string | null;
+  explanation_data?: unknown;
+}
+
+/** 暦日キー(YYYY-MM-DD)を days 日ずらす。 */
+function shiftDay(key: string, days: number): string {
+  const d = new Date(key + "T00:00:00Z");
+  d.setUTCDate(d.getUTCDate() + days);
+  return d.toISOString().slice(0, 10);
+}
+
+/** 日別集計から直近7日のバーと連続学習日数を作る。 */
+function activityFrom(
+  dayCounts: Map<string, { total: number; correct: number }>,
+  todayKey: string
+) {
+  const weekly = Array.from({ length: 7 }, (_, i) => {
+    const key = shiftDay(todayKey, i - 6);
+    const rec = dayCounts.get(key) ?? { total: 0, correct: 0 };
+    return {
+      dow: ["日", "月", "火", "水", "木", "金", "土"][new Date(key + "T00:00:00Z").getUTCDay()],
+      total: rec.total,
+      correct: rec.correct,
+    };
+  });
+
+  // 今日に記録が無ければ昨日から数え始める（当日分をまだ解いていない朝を切り捨てない）。
+  let streak = 0;
+  let cursor = dayCounts.has(todayKey) ? todayKey : shiftDay(todayKey, -1);
+  while (dayCounts.has(cursor)) {
+    streak++;
+    cursor = shiftDay(cursor, -1);
+  }
+
+  return { weekly, streak };
+}
 
 export default async function HomePage({
   searchParams,
 }: {
-  searchParams: Promise<{ subject?: string }>;
+  searchParams: Promise<{ subject?: string; screen?: string }>;
 }) {
-  const { subject: subjectSlug } = await searchParams;
-  const supabase = await createServerSupabaseClient();
+  const { subject: subjectSlug, screen: requestedScreen } = await searchParams;
+  const supabase = await getServerSupabase();
+  const user = await getSessionUser();
+  const todayKey = jstDayKey(new Date().toISOString());
 
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
-
-  const { data: subjects } = await supabase
-    .from("subjects")
-    .select("*")
-    .eq("is_active", true)
-    .order("sort_order");
+  // ── 第1波: 科目一覧・科目別集計（互いに独立なので並列）──
+  const [{ data: subjects }, { stats }] = await Promise.all([
+    supabase.from("subjects").select("id, slug, name").eq("is_active", true).order("sort_order"),
+    fetchSubjectStats(supabase, user!.id),
+  ]);
 
   if (!subjects || subjects.length === 0) {
     return (
@@ -39,100 +102,137 @@ export default async function HomePage({
     );
   }
 
-  // subject 非依存のデータを先に読む（着地セットの判定・全体の集計に使う）。
-  const [{ data: rawProgress }, { data: allQ }] = await Promise.all([
-    supabase.from("user_question_progress").select("*").eq("user_id", user!.id),
-    supabase.from("questions").select("id, subject_id, category_id").eq("is_active", true),
-  ]);
+  const examGroups = groupSubjectsByExam(toSubjectStats(subjects, stats));
 
-  const progressMap: ProgressMap = {};
-  for (const p of rawProgress ?? []) {
-    const prog: Progress = {
-      question_id: p.question_id,
-      correct_count: p.correct_count,
-      wrong_count: p.wrong_count,
-      consecutive_correct: p.consecutive_correct,
-      last_is_correct: p.last_is_correct,
-      last_selected_index: p.last_selected_index,
-      last_answered_at: p.last_answered_at,
-      understanding_level: p.understanding_level,
-      memo: p.memo,
-      last_confidence: (p.last_confidence as number | null) ?? null,
-      excluded: (p.excluded as boolean | undefined) ?? false,
-      last_spoken_ok: (p.last_spoken_ok as boolean | null) ?? null,
-      fsrs_stability: (p.fsrs_stability as number | null) ?? null,
-      fsrs_difficulty: (p.fsrs_difficulty as number | null) ?? null,
-      fsrs_due: (p.fsrs_due as string | null) ?? null,
-      fsrs_last_review: (p.fsrs_last_review as string | null) ?? null,
-      fsrs_reps: (p.fsrs_reps as number | undefined) ?? 0,
-      fsrs_lapses: (p.fsrs_lapses as number | undefined) ?? 0,
-      fsrs_state: (p.fsrs_state as string | undefined) ?? "new",
-    };
-    progressMap[p.question_id] = prog;
+  // 前回学習したセット（全体ビューの「続きから」と ?screen= のフォールバックに使う）
+  const lastStudied = subjects.reduce<{ s: (typeof subjects)[number]; at: string } | null>(
+    (best, s) => {
+      const at = stats.get(s.id)?.lastAnsweredAt;
+      if (!at) return best;
+      return !best || at > best.at ? { s, at } : best;
+    },
+    null
+  )?.s;
+
+  // ?subject= が無ければ全体ビュー。
+  const explicit = subjectSlug ? subjects.find((s) => s.slug === subjectSlug) : undefined;
+  const subject =
+    explicit ??
+    (subjectSlug || SUBJECT_SCOPED_SCREENS.includes(requestedScreen ?? "")
+      ? (lastStudied ?? subjects[0])
+      : null);
+
+  // ── 全体ビュー（問題集を選ぶ前）──
+  // 試験区分に依存するデータは一切読まないので、取得も表示もここで完結する。
+  if (!subject) {
+    const [dayCounts, { data: goalRows }] = await Promise.all([
+      fetchDailyCounts(supabase, user!.id, ACTIVITY_DAYS),
+      supabase
+        .from("user_exam_goals")
+        .select("exam_key, exam_date, target_name")
+        .eq("user_id", user!.id)
+        .not("exam_date", "is", null)
+        .gte("exam_date", todayKey)
+        .order("exam_date", { ascending: true })
+        .limit(1),
+    ]);
+
+    const { weekly, streak } = activityFrom(dayCounts, todayKey);
+    const goal = goalRows?.[0];
+    const nextExam = goal
+      ? {
+          examKey: goal.exam_key,
+          examDate: goal.exam_date as string,
+          targetName: goal.target_name ?? goal.exam_key,
+          slug:
+            examGroups.find((g) => g.examKey === goal.exam_key)?.sets[0]?.slug ?? subjects[0].slug,
+        }
+      : null;
+
+    return (
+      <OverviewDashboard
+        examGroups={examGroups}
+        streak={streak}
+        weekly={weekly}
+        nextExam={nextExam}
+        lastStudied={lastStudied ? { slug: lastStudied.slug, name: lastStudied.name } : null}
+      />
+    );
   }
-
-  const idToSlug = new Map(subjects.map((s) => [s.id, s.slug]));
-
-  // 着地するセットを決める:
-  //  - ?subject 指定があればそれ
-  //  - 無ければ「最後に学習したセット」（home が特定セットに固定表示されないように）
-  //  - どれも未学習なら先頭
-  let lastStudied: (typeof subjects)[number] | undefined;
-  {
-    const lastTsBySubject = new Map<string, number>();
-    for (const q of allQ ?? []) {
-      const at = progressMap[q.id]?.last_answered_at;
-      const ts = at ? Date.parse(at) : NaN;
-      if (!Number.isNaN(ts)) {
-        lastTsBySubject.set(
-          q.subject_id,
-          Math.max(lastTsBySubject.get(q.subject_id) ?? -Infinity, ts)
-        );
-      }
-    }
-    let bestTs = -Infinity;
-    for (const s of subjects) {
-      const ts = lastTsBySubject.get(s.id);
-      if (ts !== undefined && ts > bestTs) {
-        bestTs = ts;
-        lastStudied = s;
-      }
-    }
-  }
-  const subject = subjectSlug
-    ? (subjects.find((s) => s.slug === subjectSlug) ?? subjects[0])
-    : (lastStudied ?? subjects[0]);
 
   // ── 現在の試験区分（全セット）を束ねる ──
   // 「全セット横断で苦手だけ演習」を可能にするため、現在の subject が属する
-  // 試験区分の全アクティブセットの問題をまとめて読み込む。questions（現在セット）は
-  // その部分集合として切り出す。
+  // 試験区分の全アクティブセットの問題をまとめて読み込む。
   const examKey = examGroupKey(subject.slug);
-  const examSetIds = new Set(
-    subjects.filter((s) => examGroupKey(s.slug) === examKey).map((s) => s.id)
-  );
+  const examSets = subjects.filter((s) => examGroupKey(s.slug) === examKey);
+  const examSetIds = examSets.map((s) => s.id);
+  const examSetSlugs = examSets.map((s) => s.slug);
+  const otherSetIds = examSetIds.filter((id) => id !== subject.id);
 
-  const [{ data: categories }, { data: examCats }, { data: rawFamily }] = await Promise.all([
-    supabase.from("categories").select("*").eq("subject_id", subject.id).order("sort_order"),
-    supabase.from("categories").select("id, name, color, sort_order").in("subject_id", [...examSetIds]),
-    supabase.from("questions").select("*").eq("is_active", true).in("subject_id", [...examSetIds]),
+  // ── 第2波: 現在の試験区分に依存するものをまとめて並列取得 ──
+  const [
+    { data: categories },
+    { data: examCats },
+    { data: fullRows },
+    { data: lightRows },
+    progressMap,
+    { data: goalRow },
+    { data: textbookRows },
+    trendDays,
+  ] = await Promise.all([
+    supabase
+      .from("categories")
+      .select("id, name, color")
+      .eq("subject_id", subject.id)
+      .order("sort_order"),
+    supabase.from("categories").select("id, name, color, sort_order").in("subject_id", examSetIds),
+    supabase.from("questions").select(FULL_COLS).eq("is_active", true).eq("subject_id", subject.id),
+    otherSetIds.length
+      ? supabase
+          .from("questions")
+          .select(LIGHT_COLS)
+          .eq("is_active", true)
+          .in("subject_id", otherSetIds)
+      : Promise.resolve({ data: [] as unknown[] }),
+    fetchFamilyProgress(supabase, user!.id, examSetIds),
+    supabase
+      .from("user_exam_goals")
+      .select("exam_date, target_name")
+      .eq("user_id", user!.id)
+      .eq("exam_key", examKey)
+      .maybeSingle(),
+    supabase
+      .from("user_textbooks")
+      .select("id, label, url")
+      .eq("user_id", user!.id)
+      .eq("exam_key", examKey)
+      .order("sort_order", { ascending: true })
+      .order("created_at", { ascending: true }),
+    // 学習アクティビティと推移グラフは、この試験区分の解答だけを1回で引いて作る。
+    fetchDailyBreakdown(supabase, user!.id, ACTIVITY_DAYS, examSetSlugs),
   ]);
 
+  const dayCounts = new Map(
+    trendDays.map((d) => [d.day, { total: d.total, correct: d.correct }])
+  );
+
   const examCatMap = new Map((examCats ?? []).map((c) => [c.id, c]));
-  type QRow = NonNullable<typeof rawFamily>[number];
-  const toQuizQuestion = (q: QRow): QuizQuestion => {
+  const idToSlug = new Map(subjects.map((s) => [s.id, s.slug]));
+
+  const toQuizQuestion = (q: AnyQRow): QuizQuestion => {
     const cat = examCatMap.get(q.category_id);
     return {
       id: q.id,
-      source_ref: q.source_ref,
+      source_ref: q.source_ref ?? null,
       question_text: q.question_text,
-      code: (q.code as string | null) ?? null,
-      options: (q.options as string[]) ?? [],
+      code: q.code ?? null,
+      // 選択肢が空配列 = 本文だけの軽量版。演習開始時にクライアントが取りに行く目印。
+      options: (q.options as string[] | undefined) ?? [],
       correct_index: q.correct_index ?? 0,
-      correct_indices: (q.correct_indices as number[] | null) ?? null,
-      question_type: ((q.question_type as string) === "multi" ? "multi" : "single") as "single" | "multi",
+      correct_indices: (q.correct_indices as number[] | null | undefined) ?? null,
+      question_type: (q.question_type === "multi" ? "multi" : "single") as "single" | "multi",
       explanation: q.explanation ?? "",
-      explanation_data: (q.explanation_data as ExplanationData | null) ?? null,
+      explanation_data: (q.explanation_data as ExplanationData | null | undefined) ?? null,
       initial_wrong_weight: q.initial_wrong_weight,
       category_id: q.category_id,
       category_name: cat?.name ?? "未分類",
@@ -140,84 +240,42 @@ export default async function HomePage({
     };
   };
 
+  const familyRows = [
+    ...((fullRows ?? []) as unknown as AnyQRow[]),
+    ...((lightRows ?? []) as unknown as AnyQRow[]),
+  ];
+
   // 試験区分の全問題（横断の苦手演習・分析用）と、その各問がどのセット由来か。
-  const examQuestions: QuizQuestion[] = (rawFamily ?? []).map(toQuizQuestion);
+  const examQuestions: QuizQuestion[] = familyRows.map(toQuizQuestion);
   const examQuestionSlug: Record<string, string> = {};
-  for (const q of rawFamily ?? []) examQuestionSlug[q.id] = idToSlug.get(q.subject_id) ?? "";
+  for (const q of familyRows) examQuestionSlug[q.id] = idToSlug.get(q.subject_id) ?? "";
+
   // 現在セットの問題（通常クイズ・分野選択はこれで動く）。
-  const questions: QuizQuestion[] = (rawFamily ?? [])
-    .filter((q) => q.subject_id === subject.id)
-    .map(toQuizQuestion);
+  // examQuestions の要素をそのまま使い回すことで、RSC ペイロードに二重に載せない。
+  const questions = examQuestions.filter((q) => examQuestionSlug[q.id] === subject.slug);
 
-  const refs: QuestionSubjectRef[] = (allQ ?? [])
-    .map((q) => ({ id: q.id, slug: idToSlug.get(q.subject_id) ?? "" }))
-    .filter((r): r is QuestionSubjectRef => r.slug !== "");
-  const examGroups = groupSubjectsByExam(
-    buildSubjectStats(
-      subjects.map((s) => ({ slug: s.slug, name: s.name })),
-      refs,
-      progressMap
-    )
-  );
+  // 苦手分析の「問題 × 分野」カタログは examQuestions から導出できるので、
+  // 配列を別途送らずに、分野名→表示順の対応表（数十件）だけ渡す。
+  const sectionSort: Record<string, number> = {};
+  for (const c of examCats ?? []) {
+    const name = c.name ?? "未分類";
+    const sort = (c as { sort_order?: number }).sort_order ?? 0;
+    if (sectionSort[name] === undefined || sort < sectionSort[name]) sectionSort[name] = sort;
+  }
 
-  // ── 体系的な苦手分析（試験全体）用: 現在の試験に属する全Setの
-  //    「問題 × 分野(カテゴリ)」カタログを組み立てる ──
-  const examSections: SectionQuestionRef[] = (allQ ?? [])
-    .filter((q) => examSetIds.has(q.subject_id))
-    .map((q) => {
-      const c = examCatMap.get(q.category_id);
-      return {
-        id: q.id,
-        slug: idToSlug.get(q.subject_id) ?? "",
-        section: (c?.name as string) ?? "未分類",
-        color: (c?.color as string) ?? "#64748b",
-        sort: (c?.sort_order as number) ?? 0,
-      };
-    });
-
-  // ── 試験区分ごとの試験日（DB: user_exam_goals・本人のみ RLS）──
-  const { data: goalRow } = await supabase
-    .from("user_exam_goals")
-    .select("exam_date, target_name")
-    .eq("user_id", user!.id)
-    .eq("exam_key", examKey)
-    .maybeSingle();
   const initialGoal = goalRow
-    ? {
-        examDate: (goalRow.exam_date as string | null) ?? "",
-        targetName: (goalRow.target_name as string | null) ?? "",
-      }
+    ? { examDate: goalRow.exam_date ?? "", targetName: goalRow.target_name ?? "" }
     : null;
   const examName = examGroups.find((g) => g.examKey === examKey)?.examName ?? subject.name;
 
-  // ── 試験区分ごとの教科書リンク（DB: user_textbooks・本人のみ RLS）──
-  const { data: textbookRows } = await supabase
-    .from("user_textbooks")
-    .select("id, label, url")
-    .eq("user_id", user!.id)
-    .eq("exam_key", examKey)
-    .order("sort_order", { ascending: true })
-    .order("created_at", { ascending: true });
   const initialTextbooks = (textbookRows ?? []).map((t) => ({
-    id: t.id as string,
-    label: (t.label as string | null) ?? "",
-    url: t.url as string,
+    id: t.id,
+    label: t.label ?? "",
+    url: t.url,
   }));
 
-  // 合格ナビの逆算に使う1日 capacity を、直近の解答実績から推定する。
-  const { data: capEvents } = await supabase
-    .from("answer_events")
-    .select("answered_at")
-    .eq("user_id", user!.id)
-    .order("answered_at", { ascending: false })
-    .limit(5000);
-  const byDay = new Map<string, number>();
-  for (const e of capEvents ?? []) {
-    const d = new Date(e.answered_at as string);
-    const key = `${d.getFullYear()}-${d.getMonth()}-${d.getDate()}`;
-    byDay.set(key, (byDay.get(key) ?? 0) + 1);
-  }
-  const dailyCapacity = capacityFromDailyCounts([...byDay.values()]);
+  const dailyCapacity = capacityFromDailyCounts([...dayCounts.values()].map((v) => v.total));
+  const { weekly, streak } = activityFrom(dayCounts, todayKey);
 
   return (
     <LearningApp
@@ -226,12 +284,8 @@ export default async function HomePage({
       currentSubjectSlug={subject.slug}
       subjectName={subject.name}
       examGroups={examGroups}
-      examSections={examSections}
-      categories={(categories ?? []).map((c) => ({
-        id: c.id,
-        name: c.name,
-        color: c.color,
-      }))}
+      sectionSort={sectionSort}
+      categories={(categories ?? []).map((c) => ({ id: c.id, name: c.name, color: c.color }))}
       questions={questions}
       examQuestions={examQuestions}
       examQuestionSlug={examQuestionSlug}
@@ -241,6 +295,11 @@ export default async function HomePage({
       initialGoal={initialGoal}
       initialTextbooks={initialTextbooks}
       dailyCapacity={dailyCapacity}
+      streak={streak}
+      weekly={weekly}
+      trendDays={trendDays}
+      todayKey={todayKey}
+      requestedScreen={requestedScreen}
     />
   );
 }

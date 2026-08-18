@@ -12,8 +12,15 @@ import { type QuizQuestion } from "@/features/quiz/lib/types";
 import { type Screen } from "@/features/quiz/hooks/use-screen";
 import { useMenuSettings } from "@/features/quiz/hooks/use-menu-settings";
 import { useTextbooks } from "@/features/quiz/hooks/use-textbooks";
-import { StatCell } from "@/features/quiz/components/stat-cell";
+import { statusOf } from "@/features/quiz/lib/format";
+import {
+  ActivityCard,
+  ProgressTable,
+  StatGrid,
+} from "@/features/quiz/components/dashboard-parts";
 import { VERDICT_META, WEAK_SESSION_MAX } from "@/features/quiz/lib/constants";
+import type { WeeklyBar } from "@/app/(main)/learning-app";
+import { TrendCard, type TrendDay } from "@/features/quiz/components/trend-card";
 
 interface MenuScreenProps {
   subjectName: string;
@@ -38,19 +45,24 @@ interface MenuScreenProps {
   examQuestions: QuizQuestion[];
   examSections: SectionQuestionRef[];
   startThemeQuiz: (names: Set<string>, count: number, force?: boolean) => void;
-  pickerOpen: boolean;
-  setPickerOpen: React.Dispatch<React.SetStateAction<boolean>>;
   setScreen: (s: Screen) => void;
   startQuiz: (force?: boolean) => void;
   startReview: (qs: QuizQuestion[]) => void;
   switchSubject: (slug: string) => void;
-  csvRefresh: () => void;
   router: ReturnType<typeof useRouter>;
+  streak: number;
+  weekly: WeeklyBar[];
+  trendDays: TrendDay[];
+  todayKey: string;
 }
+
+const WEEKDAY_LABEL = ["日", "月", "火", "水", "木", "金", "土"];
+
+// 円グラフ（合格確率ゲージ）の円周。r=52 の 2πr。
+const GAUGE_CIRCUMFERENCE = 2 * Math.PI * 52;
 
 export function MenuScreen({
   subjectName,
-  subjects,
   currentSubjectSlug,
   examGroups,
   examName,
@@ -70,14 +82,15 @@ export function MenuScreen({
   examQuestions,
   examSections,
   startThemeQuiz,
-  pickerOpen,
-  setPickerOpen,
   setScreen,
   startQuiz,
   startReview,
   switchSubject,
-  csvRefresh,
   router,
+  streak,
+  weekly,
+  trendDays,
+  todayKey,
 }: MenuScreenProps) {
   const {
     selCats,
@@ -90,8 +103,6 @@ export function MenuScreen({
     setRecallMode,
     includeResting,
     setIncludeResting,
-    expandedExam,
-    setExpandedExam,
     restingCount,
     eligible,
     eligibleWithResting,
@@ -108,705 +119,689 @@ export function MenuScreen({
     deleteTextbook,
   } = tb;
 
-  const wrap = "flex flex-col items-center px-4 pb-28 pt-8";
-  const container = "w-full max-w-[520px]";
+  // 「出題数・分野を調整」で開く出題設定パネル。
+  const [tuning, setTuning] = useState(false);
+  // 初めての問題だけ演習の出題数（既定は WEAK_SESSION_MAX 相当、明示的に選び直せる）
+  const [firstTimeCount, setFirstTimeCount] = useState(WEAK_SESSION_MAX);
 
   const answeredCount = questions.filter((q) => {
     const p = getProgress(progressMap, q.id);
     return p.correct_count + p.wrong_count > 0;
   }).length;
   const countOptions = [5, 10, 20, eligible.length];
-
-  // 初めての問題だけ演習の出題数（既定は WEAK_SESSION_MAX 相当、明示的に選び直せる）
-  const [firstTimeCount, setFirstTimeCount] = useState(WEAK_SESSION_MAX);
   const firstTimeCountOptions = [10, 20, WEAK_SESSION_MAX, examFirstTimePool.length];
 
+  // ── サマリカード4枚: いま選んでいる試験区分の数字 ──
+  const currentGroup = examGroups.find((g) =>
+    g.sets.some((s) => s.slug === currentSubjectSlug)
+  );
+  const totals = {
+    total: currentGroup?.total ?? 0,
+    attempted: currentGroup?.attempted ?? 0,
+    answers: currentGroup?.answers ?? 0,
+    correct: currentGroup?.correct ?? 0,
+  };
+  const groupAccuracy = totals.answers > 0 ? totals.correct / totals.answers : 0;
+  const groupStatus = statusOf(groupAccuracy, totals.answers);
+  const weekAnswers = weekly.reduce((n, d) => n + d.total, 0);
+
+  // ── 合格ナビ ──
+  const nav = (() => {
+    if (!readiness) return null;
+    const hasDate = readiness.verdict !== "no-date";
+    const passPct = Math.round(readiness.passLine * 100);
+    // 本日時点の合格確率（ポアソン二項）と推定得点率。未計算時は定着で代替。
+    const passProb = passEstimate ? passEstimate.passProbability : readiness.readinessNow;
+    const passProbPct = Math.round(passProb * 100);
+    const scorePct = Math.round(
+      (passEstimate ? passEstimate.expectedScore : readiness.readinessNow) * 100
+    );
+    const scoreReached = scorePct >= passPct;
+    // 試験日の推定得点率（＝残り日数で全範囲を仕上げた場合の見込み得点）。
+    // 触れられる割合 = (着手 + 残日×1日量)/全問。仕上げた分は skill 0.82、残りは推測床。
+    const reachCov = Math.min(
+      1,
+      (readiness.attempted + readiness.daysLeft * dailyCapacity) / Math.max(1, readiness.total)
+    );
+    const projScore = 0.82 * reachCov + 0.25 * (1 - reachCov);
+    const chip =
+      passProb >= 0.7
+        ? VERDICT_META.passed
+        : hasDate
+          ? projScore >= readiness.passLine
+            ? VERDICT_META["on-track"]
+            : projScore >= readiness.passLine - 0.08
+              ? VERDICT_META.tight
+              : VERDICT_META["at-risk"]
+          : null;
+    return {
+      hasDate,
+      passPct,
+      passProbPct,
+      scorePct,
+      scoreReached,
+      projScorePct: Math.round(projScore * 100),
+      chip,
+      daysLeft: readiness.daysLeft,
+      neededPerDay: readiness.neededPerDayForPass,
+    };
+  })();
+
+  // ── 試験日カレンダー（今日を中央に置いた7日ストリップ） ──
+  const examDateKey = goal?.examDate || null;
+  const calDays = Array.from({ length: 7 }, (_, i) => {
+    const d = new Date(now);
+    d.setHours(0, 0, 0, 0);
+    d.setDate(d.getDate() + i - 3);
+    const key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+    return {
+      key,
+      dow: WEEKDAY_LABEL[d.getDay()],
+      date: d.getDate(),
+      today: i === 3,
+      exam: examDateKey === key,
+    };
+  });
+
   return (
-    <div className={wrap}>
-      <div className={container}>
-        {/* Header */}
-        <div className="mb-6 flex items-start justify-between">
-          <div>
-            <h1 className="text-base font-semibold text-white">{subjectName}</h1>
-            <p className="text-xs text-[#555e70]">
-              全 {questions.length} 問
-              {answeredCount > 0 && <span> · 演習済み {answeredCount}</span>}
-              {restingCount > 0 && <span> · 休眠 {restingCount}</span>}
-            </p>
-          </div>
-          {subjects.length > 1 && (
-            <div className="relative shrink-0">
-              <button
-                onClick={() => setPickerOpen((o) => !o)}
-                className="flex items-center gap-1.5 rounded-lg border border-[#2a2f3f] bg-[#1a1d27] px-3 py-1.5 text-xs text-[#8892a4] outline-none transition hover:border-[#3a4055]"
-              >
-                <span className="max-w-[180px] truncate">問題集を選ぶ</span>
-                <svg width="9" height="9" viewBox="0 0 10 10" fill="none">
-                  <path d="M2 3.5L5 6.5L8 3.5" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round" />
-                </svg>
-              </button>
+    <>
+      {/* ---------- サマリ ---------- */}
+      <StatGrid
+        totals={totals}
+        streak={streak}
+        weekAnswers={weekAnswers}
+        firstTrend={isMultiSet ? `${currentGroup?.sets.length ?? 1} セット` : "1 セット"}
+        accuracyTrend={groupStatus.label}
+      />
 
-              {pickerOpen && (
-                <>
-                  <button
-                    aria-label="閉じる"
-                    onClick={() => setPickerOpen(false)}
-                    className="fixed inset-0 z-40 cursor-default"
-                  />
-                  <div className="absolute right-0 z-50 mt-2 max-h-[70vh] w-[340px] overflow-auto rounded-xl border border-[#2a2f3f] bg-[#12141c] p-1.5 shadow-2xl">
-                    {examGroups.map((g) => {
-                      // 単一セットの試験はそのまま1行で選択可能にする。
-                      if (g.sets.length === 1) {
-                        const s = g.sets[0];
-                        const active = s.slug === currentSubjectSlug;
-                        return (
-                          <button
-                            key={g.examKey}
-                            onClick={() => {
-                              setPickerOpen(false);
-                              if (!active) switchSubject(s.slug);
-                            }}
-                            className={`flex w-full items-center gap-2 rounded-lg px-2 py-2 text-left transition ${
-                              active ? "bg-[#1e2230]" : "hover:bg-[#1a1d27]"
-                            }`}
-                          >
-                            <span
-                              className={`min-w-0 flex-1 truncate text-xs ${
-                                active ? "font-medium text-white" : "text-[#c0c8d8]"
-                              }`}
-                            >
-                              {g.examName}
-                            </span>
-                            <StatCell
-                              accuracy={s.accuracy}
-                              answers={s.answers}
-                              attempted={s.attempted}
-                              total={s.total}
-                              last={s.lastAnsweredAt}
-                              now={now}
-                            />
-                          </button>
-                        );
-                      }
+      <div className="content-grid">
+        {/* ================= 左カラム ================= */}
+        <div className="col-main">
+          {/* 学習アクティビティ + 合格ナビ */}
+          <div className="two-up">
+            <ActivityCard
+              weekly={weekly}
+              sub={`直近7日間の解答数（${examName}）`}
+              onOpenLog={() => router.push("/log")}
+            />
 
-                      // 複数セットの試験は「試験見出し（集計）」を1行に折りたたみ、
-                      // クリックで展開してセット一覧を表示する。
-                      const open = expandedExam === g.examKey;
-                      const hasCurrent = g.sets.some((s) => s.slug === currentSubjectSlug);
-                      return (
-                        <div key={g.examKey}>
-                          <button
-                            onClick={() => setExpandedExam(open ? null : g.examKey)}
-                            className={`flex w-full items-center gap-2 rounded-lg px-2 py-2 text-left transition hover:bg-[#1a1d27] ${
-                              hasCurrent && !open ? "bg-[#161922]" : ""
-                            }`}
-                          >
-                            <svg
-                              width="9"
-                              height="9"
-                              viewBox="0 0 10 10"
-                              fill="none"
-                              className="shrink-0 transition-transform"
-                              style={{ transform: open ? "rotate(90deg)" : "none", color: "#8892a4" }}
-                            >
-                              <path d="M3.5 2L6.5 5L3.5 8" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round" />
-                            </svg>
-                            <span className="min-w-0 flex-1 truncate text-xs font-semibold text-[#c0c8d8]">
-                              {g.examName}
-                              <span className="ml-1.5 font-normal text-[#555e70]">{g.sets.length}セット</span>
-                            </span>
-                            <StatCell
-                              accuracy={g.accuracy}
-                              answers={g.answers}
-                              attempted={g.attempted}
-                              total={g.total}
-                              last={g.lastAnsweredAt}
-                              now={now}
-                            />
-                          </button>
-
-                          {open && (
-                            <div className="mb-1 ml-3.5 space-y-0.5 border-l border-[#2a2f3f] pl-2">
-                              {g.sets.map((s) => {
-                                const active = s.slug === currentSubjectSlug;
-                                return (
-                                  <button
-                                    key={s.slug}
-                                    onClick={() => {
-                                      setPickerOpen(false);
-                                      if (!active) switchSubject(s.slug);
-                                    }}
-                                    className={`flex w-full items-center gap-2 rounded-lg px-2 py-1.5 text-left transition ${
-                                      active ? "bg-[#1e2230]" : "hover:bg-[#1a1d27]"
-                                    }`}
-                                  >
-                                    <span
-                                      className={`min-w-0 flex-1 truncate text-xs ${
-                                        active ? "font-medium text-white" : "text-[#c0c8d8]"
-                                      }`}
-                                    >
-                                      {s.name}
-                                    </span>
-                                    <StatCell
-                                      accuracy={s.accuracy}
-                                      answers={s.answers}
-                                      attempted={s.attempted}
-                                      total={s.total}
-                                      last={s.lastAnsweredAt}
-                                      now={now}
-                                    />
-                                  </button>
-                                );
-                              })}
-                            </div>
-                          )}
-                        </div>
-                      );
-                    })}
-                  </div>
-                </>
-              )}
-            </div>
-          )}
-        </div>
-
-        {/* 合格ナビ card — 本日時点の合格可能性は試験日と独立に常時表示。
-            試験日があれば加えて着地予測・ノルマも出す。 */}
-        {readiness &&
-          (() => {
-            const hasDate = readiness.verdict !== "no-date";
-            const passPct = Math.round(readiness.passLine * 100);
-            // 本日時点の合格確率（ポアソン二項）と推定得点率。未計算時は定着で代替。
-            const passProb = passEstimate ? passEstimate.passProbability : readiness.readinessNow;
-            const passProbPct = Math.round(passProb * 100);
-            const scorePct = Math.round(
-              (passEstimate ? passEstimate.expectedScore : readiness.readinessNow) * 100
-            );
-            const scoreReached = scorePct >= passPct;
-            // 合格確率の色: 高いほど緑、中位は琥珀、低位は学習中のアクセント青。
-            const probColor = passProb >= 0.7 ? "#22c55e" : passProb >= 0.4 ? "#f59e0b" : "#3b82f6";
-            const barColor = scoreReached ? "#22c55e" : "#3b82f6";
-            // 試験日の推定得点率（＝残り日数で全範囲を仕上げた場合の見込み得点）。
-            // 触れられる割合 = (着手 + 残日×1日量)/全問。仕上げた分は skill 0.82、残りは推測床。
-            const reachCov = Math.min(
-              1,
-              (readiness.attempted + readiness.daysLeft * dailyCapacity) /
-                Math.max(1, readiness.total)
-            );
-            const projScore = 0.82 * reachCov + 0.25 * (1 - reachCov);
-            const projScorePct = Math.round(projScore * 100);
-            const projColor =
-              projScorePct >= passPct ? "#22c55e" : projScorePct >= passPct - 8 ? "#f59e0b" : "#8892a4";
-            // ヘッダーのバッジ: 本日すでに合格圏なら合格圏内、そうでなければ試験日見込みで判定。
-            const chip =
-              passProb >= 0.7
-                ? VERDICT_META.passed
-                : hasDate
-                  ? projScore >= readiness.passLine
-                    ? VERDICT_META["on-track"]
-                    : projScore >= readiness.passLine - 0.08
-                      ? VERDICT_META.tight
-                      : VERDICT_META["at-risk"]
-                  : null;
-            return (
-              <div className="mb-6 rounded-xl border border-[#2a2f3f] bg-[#1a1d27] p-4">
-                <div className="mb-3 flex items-start justify-between gap-3">
-                  <div className="min-w-0">
-                    <p className="truncate text-sm font-medium text-white">
-                      {goal?.targetName || examName}
-                    </p>
-                    <p className="text-xs text-[#555e70]">
-                      {hasDate ? `試験まで残り ${readiness.daysLeft} 日` : "試験日は未設定"}
-                    </p>
-                  </div>
-                  {chip && (
-                    <span
-                      className="shrink-0 rounded-full px-2.5 py-1 text-[11px] font-semibold"
-                      style={{ color: chip.color, background: chip.color + "22" }}
-                    >
-                      {chip.label}
-                    </span>
-                  )}
+            <div className="card">
+              <div className="card-head">
+                <div>
+                  <div className="card-title">合格ナビ</div>
+                  <div className="card-sub">{goal?.targetName || examName}・本日時点</div>
                 </div>
-
-                <div className="mb-2 flex items-end justify-between gap-3">
-                  <div className="min-w-0">
-                    <p className="text-[10px] uppercase tracking-widest text-[#555e70]">
-                      本日時点の合格確率
-                    </p>
-                    <p
-                      className="tabular-nums text-3xl font-light leading-tight"
-                      style={{ color: probColor, letterSpacing: "-.03em" }}
-                    >
-                      {passProbPct}%
-                    </p>
-                  </div>
-                  {hasDate && (
-                    <span className="shrink-0 pb-1 text-right text-xs text-[#8892a4]">
-                      試験日の推定得点率<span className="text-[#3a4050]">*</span>{" "}
-                      <b className="tabular-nums" style={{ color: projColor }}>
-                        {projScorePct}%
-                      </b>
-                    </span>
-                  )}
-                </div>
-                <div className="relative mb-1 h-2 overflow-hidden rounded-full bg-[#2a2f3f]">
-                  <div
-                    className="h-full rounded-full transition-all duration-500"
-                    style={{ width: `${scorePct}%`, background: barColor }}
-                  />
-                  <div
-                    className="absolute -top-0.5 bottom-[-2px] w-px bg-white/70"
-                    style={{ left: `${passPct}%` }}
-                    title={`合格ライン ${passPct}%`}
-                  />
-                </div>
-                <p className="mb-3 text-[10px] text-[#3a4050]">
-                  推定得点率 {scorePct}% ／ 白線 = 合格ライン {passPct}%
-                </p>
-
-                <div className="flex items-center justify-between gap-3">
-                  <p className="min-w-0 text-xs" style={{ color: scoreReached ? "#22c55e" : "#8892a4" }}>
-                    {scoreReached
-                      ? "推定得点が合格ラインに到達。維持しよう"
-                      : `推定得点をあと ${Math.max(0, passPct - scorePct)}% 上げれば合格ライン` +
-                        (hasDate && readiness.neededPerDayForPass > 0
-                          ? ` · 1日 ${readiness.neededPerDayForPass} 問`
-                          : "")}
-                  </p>
-                  <button
-                    onClick={() => setScreen("goal")}
-                    className="shrink-0 text-xs text-[#555e70] transition hover:text-[#8892a4]"
+                {nav?.chip && (
+                  <span
+                    className="status-pill"
+                    style={{ color: nav.chip.color, background: nav.chip.color + "22" }}
                   >
-                    {hasDate ? "編集" : "試験日を設定"}
-                  </button>
-                </div>
-                {hasDate && (
-                  <p className="mt-2 text-[10px] text-[#3a4050]">
-                    * 残り日数で全範囲をひととおり仕上げた場合の推定得点（まぐれ当たりは実力に数えません）
-                  </p>
+                    {nav.chip.label}
+                  </span>
                 )}
               </div>
-            );
-          })()}
 
-        {/* 教科書リンク（試験区分ごと・クリックで外部ページへ） */}
-        <section className="mb-6">
-          <div className="mb-2 flex items-center justify-between">
-            <p className="text-[10px] font-semibold uppercase tracking-widest text-[#555e70]">
-              教科書
-            </p>
-            {(textbooks.length > 0 || tbEditing) && (
+              {nav ? (
+                <div className="gauge-wrap">
+                  <div className="gauge">
+                    <svg viewBox="0 0 120 120">
+                      <circle cx="60" cy="60" r="52" fill="none" stroke="#232838" strokeWidth="12" />
+                      <circle
+                        cx="60"
+                        cy="60"
+                        r="52"
+                        fill="none"
+                        stroke="url(#navGauge)"
+                        strokeWidth="12"
+                        strokeLinecap="round"
+                        strokeDasharray={GAUGE_CIRCUMFERENCE}
+                        strokeDashoffset={GAUGE_CIRCUMFERENCE * (1 - nav.passProbPct / 100)}
+                      />
+                      <defs>
+                        <linearGradient id="navGauge" x1="0%" y1="0%" x2="100%" y2="100%">
+                          <stop offset="0%" stopColor="#60a5fa" />
+                          <stop offset="100%" stopColor="#22c55e" />
+                        </linearGradient>
+                      </defs>
+                    </svg>
+                    <div className="gauge-center">
+                      <div className="gauge-pct">{nav.passProbPct}%</div>
+                      <div className="gauge-tag">合格確率</div>
+                    </div>
+                  </div>
+                  <div className="gauge-foot">
+                    {nav.hasDate ? (
+                      <>
+                        試験まで{" "}
+                        <b style={{ color: "var(--green)" }}>{nav.daysLeft}日</b> ／ 合格ライン{" "}
+                        {nav.passPct}%
+                      </>
+                    ) : (
+                      <>試験日は未設定 ／ 合格ライン {nav.passPct}%</>
+                    )}
+                  </div>
+                  <div className="mt-3 w-full">
+                    <div className="relative h-1.5 overflow-hidden rounded-full bg-card2">
+                      <div
+                        className="h-full rounded-full transition-all duration-500"
+                        style={{
+                          width: `${nav.scorePct}%`,
+                          background: nav.scoreReached ? "var(--green)" : "var(--primary)",
+                        }}
+                      />
+                      <div
+                        className="absolute -top-0.5 bottom-[-2px] w-px bg-white/70"
+                        style={{ left: `${nav.passPct}%` }}
+                        title={`合格ライン ${nav.passPct}%`}
+                      />
+                    </div>
+                    <p className="mt-2 text-[11px] leading-relaxed text-muted2">
+                      推定得点率 {nav.scorePct}%
+                      {nav.hasDate && ` ／ 試験日の見込み ${nav.projScorePct}%`}
+                    </p>
+                    <div className="mt-2 flex items-center justify-between gap-2">
+                      <p
+                        className="min-w-0 text-[11px]"
+                        style={{ color: nav.scoreReached ? "var(--green)" : "var(--muted)" }}
+                      >
+                        {nav.scoreReached
+                          ? "合格ラインに到達。維持しよう"
+                          : `あと ${Math.max(0, nav.passPct - nav.scorePct)}%` +
+                            (nav.hasDate && nav.neededPerDay > 0
+                              ? ` ・ 1日 ${nav.neededPerDay} 問`
+                              : "")}
+                      </p>
+                      <button
+                        onClick={() => setScreen("goal")}
+                        className="shrink-0 text-[11px] text-muted2 transition hover:text-muted"
+                      >
+                        {nav.hasDate ? "編集" : "試験日を設定"}
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              ) : (
+                <p className="py-8 text-center text-xs text-muted2">
+                  演習を始めると合格確率を計算します
+                </p>
+              )}
+            </div>
+          </div>
+
+          <TrendCard days={trendDays} todayKey={todayKey} examName={examName} />
+
+          {/* 問題集の進捗（全区分。行クリックでその問題集へ切り替え） */}
+          <ProgressTable
+            examGroups={examGroups}
+            currentSubjectSlug={currentSubjectSlug}
+            now={now}
+            onSelect={switchSubject}
+            onSeeAll={() => router.push("/catalog")}
+          />
+
+          {/* 演習を始める */}
+          <div className="card start-card">
+            <div className="card-head">
+              <div>
+                <div className="card-title">演習を始める</div>
+                <div className="card-sub">
+                  {subjectName} ・ 全 {questions.length} 問
+                  {answeredCount > 0 && ` ・ 演習済み ${answeredCount}`}
+                  {restingCount > 0 && ` ・ 休眠 ${restingCount}`}
+                </div>
+              </div>
+            </div>
+
+            <div className="quick-actions">
               <button
-                onClick={() => {
-                  setTbEditing((v) => !v);
-                  setTbError(null);
-                }}
-                className="text-xs text-[#555e70] transition hover:text-[#8892a4]"
+                className="quick-action"
+                disabled={examWeakPool.length === 0}
+                style={examWeakPool.length === 0 ? { opacity: 0.45, cursor: "not-allowed" } : undefined}
+                onClick={() => startReview(examWeakPool.slice(0, WEAK_SESSION_MAX))}
               >
-                {tbEditing ? "完了" : "編集"}
+                <div className="qa-icon" style={{ background: "var(--red-soft)", color: "var(--red)" }}>
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                    <path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 1 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z" />
+                  </svg>
+                </div>
+                <div className="qa-title">苦手だけ演習</div>
+                <div className="qa-sub">
+                  {examWeakPool.length === 0
+                    ? "まだありません"
+                    : `${Math.min(examWeakPool.length, WEAK_SESSION_MAX)}問 ・ 弱点順${isMultiSet ? "・横断" : ""}`}
+                </div>
               </button>
+
+              <button
+                className="quick-action"
+                disabled={examFirstTimePool.length === 0}
+                style={examFirstTimePool.length === 0 ? { opacity: 0.45, cursor: "not-allowed" } : undefined}
+                onClick={() =>
+                  startReview(examFirstTimePool.slice(0, firstTimeCount || examFirstTimePool.length))
+                }
+              >
+                <div className="qa-icon" style={{ background: "var(--primary-soft)", color: "var(--primary2)" }}>
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                    <circle cx="12" cy="12" r="10" />
+                    <path d="M12 6v6l4 2" />
+                  </svg>
+                </div>
+                <div className="qa-title">初めての問題</div>
+                <div className="qa-sub">
+                  {examFirstTimePool.length === 0
+                    ? "すべて着手済み"
+                    : `${Math.min(firstTimeCount || examFirstTimePool.length, examFirstTimePool.length)}問 ・ 未着手のみ`}
+                </div>
+              </button>
+
+              <button
+                className="quick-action"
+                disabled={eligible.length === 0 && eligibleWithResting.length === 0}
+                onClick={() => {
+                  setMode("shuffle");
+                  startQuiz(eligible.length === 0);
+                }}
+              >
+                <div className="qa-icon" style={{ background: "var(--purple-soft)", color: "var(--purple)" }}>
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                    <path d="M16 3h5v5M4 20L21 3M21 16v5h-5M15 15l6 6M4 4l5 5" />
+                  </svg>
+                </div>
+                <div className="qa-title">シャッフル演習</div>
+                <div className="qa-sub">この問題集からランダム</div>
+              </button>
+            </div>
+
+            {examFirstTimePool.length > 0 && (
+              <div className="mt-3">
+                <p className="section-label">初めての問題の出題数</p>
+                <div className="pill-row mt-1.5">
+                  {firstTimeCountOptions.map((n, i) => (
+                    <button
+                      key={i}
+                      onClick={() => setFirstTimeCount(n)}
+                      className={firstTimeCount === n ? "on" : ""}
+                      style={{ ["--pill-color" as string]: "#60a5fa" }}
+                    >
+                      {i === firstTimeCountOptions.length - 1 ? `全部 ${n}` : n}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            <div className="cta-row">
+              {eligible.length > 0 ? (
+                <button className="btn-primary" onClick={() => startQuiz()}>
+                  スタート — {Math.min(count, eligible.length)} 問
+                </button>
+              ) : eligibleWithResting.length > 0 ? (
+                // 全問休眠でも「今すぐ復習したい」に応える脱出口。休眠を無視して出題する。
+                <button className="btn-primary" onClick={() => startQuiz(true)}>
+                  休眠中も含めて復習 — {Math.min(count, eligibleWithResting.length)} 問
+                </button>
+              ) : (
+                <button className="btn-primary" disabled>
+                  出題できる問題がありません
+                </button>
+              )}
+              <button className="btn-ghost" onClick={() => setTuning((v) => !v)}>
+                {tuning ? "設定を閉じる" : "出題数・分野を調整"}
+              </button>
+            </div>
+
+            {eligible.length === 0 && eligibleWithResting.length > 0 && (
+              <p className="mt-2 text-[11px] text-muted2">
+                いまは全問が休眠中（復習日は先）。それでも復習できます
+              </p>
             )}
           </div>
 
-          {textbooks.length > 0 && (
-            <div className="overflow-hidden rounded-xl border border-[#2a2f3f] bg-[#1a1d27]">
-              {textbooks.map((tb, i) => (
-                <div
-                  key={tb.id}
-                  className={`flex items-center ${i > 0 ? "border-t border-[#20242e]" : ""}`}
-                >
-                  <a
-                    href={tb.url}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="group flex min-w-0 flex-1 items-center gap-2.5 px-3.5 py-3 transition hover:bg-[#1e2230]"
-                  >
-                    <svg
-                      width="15"
-                      height="15"
-                      viewBox="0 0 24 24"
-                      fill="none"
-                      stroke="currentColor"
-                      strokeWidth="1.8"
-                      strokeLinecap="round"
-                      strokeLinejoin="round"
-                      className="shrink-0 text-[#555e70]"
-                    >
-                      <path d="M4 5a2 2 0 0 1 2-2h12v16H6a2 2 0 0 0-2 2V5Z" />
-                      <path d="M4 19a2 2 0 0 0 2 2h12" />
-                    </svg>
-                    <span className="min-w-0 flex-1 truncate text-sm text-[#c0c8d8] transition group-hover:text-white">
-                      {tb.label || tb.url}
-                    </span>
-                    <svg
-                      width="13"
-                      height="13"
-                      viewBox="0 0 24 24"
-                      fill="none"
-                      stroke="currentColor"
-                      strokeWidth="1.8"
-                      strokeLinecap="round"
-                      strokeLinejoin="round"
-                      className="shrink-0 text-[#555e70] transition group-hover:text-[#8892a4]"
-                    >
-                      <path d="M7 17 17 7M9 7h8v8" />
-                    </svg>
-                  </a>
-                  {tbEditing && (
-                    <button
-                      onClick={() => deleteTextbook(tb.id)}
-                      aria-label="削除"
-                      className="mr-1.5 shrink-0 rounded-md px-2 py-2 text-[#555e70] transition hover:bg-[#ef4444]/15 hover:text-[#ef4444]"
-                    >
-                      <svg
-                        width="14"
-                        height="14"
-                        viewBox="0 0 24 24"
-                        fill="none"
-                        stroke="currentColor"
-                        strokeWidth="2"
-                        strokeLinecap="round"
-                      >
-                        <path d="M6 6l12 12M18 6 6 18" />
-                      </svg>
-                    </button>
-                  )}
+          {/* 出題設定 */}
+          {tuning && (
+            <div className="card">
+              <div className="card-head">
+                <div>
+                  <div className="card-title">出題設定</div>
+                  <div className="card-sub">{subjectName} の分野・問題数・出題モード</div>
                 </div>
-              ))}
-            </div>
-          )}
-
-          {textbooks.length === 0 && !tbEditing && (
-            <button
-              onClick={() => setTbEditing(true)}
-              className="w-full rounded-xl border border-dashed border-[#2a2f3f] px-4 py-3.5 text-left transition hover:border-[#3a4050]"
-            >
-              <p className="text-sm text-[#8892a4]">教科書リンクを追加</p>
-              <p className="text-xs text-[#555e70]">Claude アーティファクト等の公開ページ URL を貼る</p>
-            </button>
-          )}
-
-          {tbEditing && (
-            <div className="mt-2 rounded-xl border border-[#2a2f3f] bg-[#14161d] p-3">
-              <input
-                type="text"
-                value={tbDraft.label}
-                onChange={(e) => setTbDraft((d) => ({ ...d, label: e.target.value }))}
-                placeholder="タイトル（例: 公式ドキュメントまとめ）"
-                className="mb-2 w-full rounded-lg border border-[#2a2f3f] bg-[#1a1d27] px-3 py-2 text-sm text-white outline-none transition-colors placeholder:text-[#555e70] focus:border-[#3b82f6]"
-              />
-              <input
-                type="url"
-                value={tbDraft.url}
-                onChange={(e) => setTbDraft((d) => ({ ...d, url: e.target.value }))}
-                onKeyDown={(e) => {
-                  if (e.key === "Enter") addTextbook();
-                }}
-                placeholder="https://claude.ai/public/artifacts/..."
-                className="w-full rounded-lg border border-[#2a2f3f] bg-[#1a1d27] px-3 py-2 text-sm text-white outline-none transition-colors placeholder:text-[#555e70] focus:border-[#3b82f6]"
-              />
-              {tbError && <p className="mt-1.5 text-[11px] text-[#ef4444]">{tbError}</p>}
-              <button
-                onClick={addTextbook}
-                disabled={!tbDraft.url.trim()}
-                className="mt-2.5 w-full rounded-lg bg-[#3b82f6] px-4 py-2 text-sm font-medium text-white transition hover:bg-[#3b82f6]/90 disabled:cursor-not-allowed disabled:opacity-40"
-              >
-                追加
-              </button>
-            </div>
-          )}
-        </section>
-
-        {/* 苦手だけ演習（試験区分の全セット横断・弱点順） */}
-        {examWeakPool.length > 0 && (
-          <button
-            onClick={() => startReview(examWeakPool.slice(0, WEAK_SESSION_MAX))}
-            className="mb-6 flex w-full items-center justify-between gap-3 rounded-xl border border-[#3a1d1d] bg-[#181215] px-4 py-3.5 text-left transition hover:border-[#ef4444]"
-          >
-            <div className="min-w-0">
-              <p className="text-sm font-medium text-white">苦手だけ演習</p>
-              <p className="text-xs text-[#8892a4]">
-                {isMultiSet ? "全セット横断・" : ""}間違えた・苦手な問題を弱点順に
-              </p>
-            </div>
-            <span className="shrink-0 rounded-lg bg-[#ef4444]/15 px-3 py-1.5 text-xs font-semibold tabular-nums text-[#f87171]">
-              {examWeakPool.length > WEAK_SESSION_MAX
-                ? `上位${WEAK_SESSION_MAX} / ${examWeakPool.length}問`
-                : `${examWeakPool.length}問`}
-            </span>
-          </button>
-        )}
-
-        {/* 初めての問題だけ演習（試験区分の全セット横断・未着手のみ・順不同・件数を選べる） */}
-        {examFirstTimePool.length > 0 && (
-          <section className="mb-6 rounded-xl border border-[#1a2b3a] bg-[#0f171d] px-4 py-3.5">
-            <div className="mb-3 flex items-center justify-between gap-3">
-              <div className="min-w-0">
-                <p className="text-sm font-medium text-white">初めての問題だけ演習</p>
-                <p className="text-xs text-[#8892a4]">
-                  {isMultiSet ? "全セット横断・" : ""}まだ一度も解いていない問題だけ
-                </p>
               </div>
-              <span className="shrink-0 rounded-lg bg-[#3b82f6]/15 px-3 py-1.5 text-xs font-semibold tabular-nums text-[#60a5fa]">
-                {examFirstTimePool.length}問
-              </span>
-            </div>
 
-            <div className="mb-3 flex overflow-hidden rounded-xl border border-[#2a2f3f]">
-              {firstTimeCountOptions.map((n, i) => {
-                const on = firstTimeCount === n;
-                return (
+              <p className="section-label">分野</p>
+              <div className="mb-3 mt-2 flex flex-wrap gap-1.5">
+                {categories.map((c) => {
+                  const on = selCats.has(c.id);
+                  const inCat = questions.filter((q) => q.category_id === c.id);
+                  const rest = inCat.filter((q) =>
+                    isResting(getProgress(progressMap, q.id), now)
+                  ).length;
+                  return (
+                    <button
+                      key={c.id}
+                      onClick={() => {
+                        const s = new Set(selCats);
+                        if (s.has(c.id)) s.delete(c.id);
+                        else s.add(c.id);
+                        setSelCats(s);
+                      }}
+                      className="filter-chip"
+                      style={{
+                        borderColor: on ? c.color + "55" : undefined,
+                        color: on ? c.color : undefined,
+                        background: on ? c.color + "14" : undefined,
+                      }}
+                    >
+                      <span
+                        className="h-1.5 w-1.5 shrink-0 rounded-full"
+                        style={{ background: on ? c.color : "#343a4a" }}
+                      />
+                      {c.name}
+                      <span className="n">{inCat.length - rest}</span>
+                    </button>
+                  );
+                })}
+              </div>
+              <div className="mb-5 flex gap-3">
+                <button
+                  onClick={() => setSelCats(new Set(categories.map((c) => c.id)))}
+                  className="text-xs text-muted2 transition hover:text-muted"
+                >
+                  全選択
+                </button>
+                <span className="text-border">·</span>
+                <button
+                  onClick={() => setSelCats(new Set())}
+                  className="text-xs text-muted2 transition hover:text-muted"
+                >
+                  全解除
+                </button>
+              </div>
+
+              <p className="section-label">問題数</p>
+              <div className="pill-row mb-5 mt-2">
+                {countOptions.map((n, i) => (
                   <button
                     key={i}
-                    onClick={() => setFirstTimeCount(n)}
-                    className="flex-1 border-r border-[#2a2f3f] py-2 text-xs font-medium last:border-r-0 transition"
-                    style={{
-                      background: on ? "#1e2230" : "transparent",
-                      color: on ? "#e8eaf0" : "#8892a4",
-                    }}
+                    onClick={() => setCount(n)}
+                    className={count === n ? "on" : ""}
+                    style={{ ["--pill-color" as string]: "#60a5fa" }}
                   >
-                    {i === firstTimeCountOptions.length - 1 ? `全部 ${n}` : n}
+                    {i === countOptions.length - 1 ? `全部 ${eligible.length}` : n}
                   </button>
-                );
-              })}
-            </div>
+                ))}
+              </div>
 
-            <button
-              onClick={() =>
-                startReview(examFirstTimePool.slice(0, firstTimeCount || examFirstTimePool.length))
-              }
-              className="w-full rounded-xl border border-[#2a2f3f] py-3 text-sm font-medium text-[#60a5fa] transition hover:border-[#3b82f6]"
-            >
-              スタート — {Math.min(firstTimeCount || examFirstTimePool.length, examFirstTimePool.length)} 問
-            </button>
-          </section>
-        )}
-
-        {/* テーマ横断演習（複数セット構成の試験のみ。セット内の分野選択とは独立） */}
-        {isMultiSet && (
-          <ThemePractice
-            examQuestions={examQuestions}
-            examSections={examSections}
-            progressMap={progressMap}
-            now={now}
-            includeResting={includeResting}
-            onStart={startThemeQuiz}
-          />
-        )}
-
-        {/* Categories */}
-        <p className="mb-2 text-[10px] font-semibold uppercase tracking-widest text-[#555e70]">
-          分野
-        </p>
-        <div className="mb-2 flex flex-wrap gap-1.5">
-          {categories.map((c) => {
-            const on = selCats.has(c.id);
-            const all = questions.filter((q) => q.category_id === c.id);
-            const rest = all.filter((q) =>
-              isResting(getProgress(progressMap, q.id), now)
-            ).length;
-            return (
-              <button
-                key={c.id}
-                onClick={() => {
-                  const s = new Set(selCats);
-                  s.has(c.id) ? s.delete(c.id) : s.add(c.id);
-                  setSelCats(s);
-                }}
-                className="flex items-center gap-1.5 rounded-full border px-3 py-1 text-xs transition"
-                style={{
-                  borderColor: on ? c.color + "55" : "#2a2f3f",
-                  color: on ? c.color : "#8892a4",
-                  background: on ? c.color + "0f" : "transparent",
-                }}
-              >
-                <span
-                  className="h-1.5 w-1.5 shrink-0 rounded-full"
-                  style={{ background: on ? c.color : "#3a4050" }}
-                />
-                {c.name}
-                <span className="text-[10px] opacity-60">{all.length - rest}</span>
-              </button>
-            );
-          })}
-        </div>
-        <div className="mb-6 flex gap-3">
-          <button
-            onClick={() => setSelCats(new Set(categories.map((c) => c.id)))}
-            className="text-xs text-[#555e70] transition hover:text-[#8892a4]"
-          >
-            全選択
-          </button>
-          <span className="text-[#2a2f3f]">·</span>
-          <button
-            onClick={() => setSelCats(new Set())}
-            className="text-xs text-[#555e70] transition hover:text-[#8892a4]"
-          >
-            全解除
-          </button>
-        </div>
-
-        {/* Count */}
-        <p className="mb-2 text-[10px] font-semibold uppercase tracking-widest text-[#555e70]">
-          問題数
-        </p>
-        <div className="mb-6 flex overflow-hidden rounded-xl border border-[#2a2f3f]">
-          {countOptions.map((n, i) => {
-            const on = count === n;
-            return (
-              <button
-                key={i}
-                onClick={() => setCount(n)}
-                className="flex-1 border-r border-[#2a2f3f] py-2.5 text-sm font-medium last:border-r-0 transition"
-                style={{
-                  background: on ? "#3b82f6" : "transparent",
-                  color: on ? "#fff" : "#8892a4",
-                }}
-              >
-                {i === 3 ? eligible.length : n}
-              </button>
-            );
-          })}
-        </div>
-
-        {/* Start CTA */}
-        {eligible.length > 0 ? (
-          <button
-            onClick={() => startQuiz()}
-            className="mb-6 w-full rounded-xl bg-[#3b82f6] py-4 text-sm font-semibold text-white transition hover:bg-[#60a5fa]"
-          >
-            スタート — {Math.min(count, eligible.length)} 問
-          </button>
-        ) : eligibleWithResting.length > 0 ? (
-          // 全問休眠でも「今すぐ復習したい」に応える脱出口。休眠を無視して出題する。
-          <div className="mb-6">
-            <button
-              onClick={() => startQuiz(true)}
-              className="w-full rounded-xl bg-[#3b82f6] py-4 text-sm font-semibold text-white transition hover:bg-[#60a5fa]"
-            >
-              休眠中も含めて復習 — {Math.min(count, eligibleWithResting.length)} 問
-            </button>
-            <p className="mt-1.5 text-center text-xs text-[#555e70]">
-              いまは全問が休眠中（復習日は先）。それでも復習できます
-            </p>
-          </div>
-        ) : (
-          <button
-            disabled
-            className="mb-6 w-full rounded-xl bg-[#141720] py-4 text-sm font-semibold text-[#555e70]"
-          >
-            この分野に出題できる問題がありません
-          </button>
-        )}
-
-        {/* Advanced settings */}
-        <details className="mb-6 group" open={mode === "priority" || recallMode || includeResting}>
-          <summary className="mb-3 cursor-pointer list-none text-xs text-[#555e70] transition hover:text-[#8892a4] group-open:text-[#8892a4]">
-            詳細設定
-          </summary>
-
-          <div className="space-y-4">
-            <div>
-              <p className="mb-2 text-[10px] font-semibold uppercase tracking-widest text-[#555e70]">
-                出題モード
-              </p>
-              <div className="flex overflow-hidden rounded-xl border border-[#2a2f3f]">
-                {([["shuffle", "シャッフル"], ["priority", "弱点優先"]] as const).map(
-                  ([m, lbl], i) => (
+              <p className="section-label">出題モード</p>
+              <div className="pill-row mb-1.5 mt-2">
+                {([["shuffle", "シャッフル", "#60a5fa"], ["priority", "弱点優先", "#f87171"]] as const).map(
+                  ([m, lbl, col]) => (
                     <button
                       key={m}
                       onClick={() => setMode(m)}
-                      className="flex-1 py-2.5 text-sm transition"
-                      style={{
-                        borderRight: i === 0 ? "1px solid #2a2f3f" : "none",
-                        background:
-                          mode === m
-                            ? m === "priority"
-                              ? "#1f0a0a"
-                              : "#0d1f3c"
-                            : "transparent",
-                        color:
-                          mode === m
-                            ? m === "priority"
-                              ? "#f87171"
-                              : "#60a5fa"
-                            : "#8892a4",
-                      }}
+                      className={mode === m ? "on" : ""}
+                      style={{ ["--pill-color" as string]: col }}
                     >
+                      <span className="dot" />
                       {lbl}
                     </button>
                   )
                 )}
               </div>
-              <p className="mt-1.5 text-xs text-[#555e70]">
-                3回連続正解は2週間休眠
-              </p>
-            </div>
+              <p className="mb-5 text-[11px] text-muted2">3回連続正解は2週間休眠</p>
 
-            <div className="flex items-center justify-between rounded-xl border border-[#2a2f3f] px-4 py-3">
-              <div>
-                <p className="text-sm text-[#c0c8d8]">想起モード</p>
-                <p className="text-xs text-[#555e70]">選択肢を隠して先に考える</p>
+              <div className="space-y-2">
+                {(
+                  [
+                    ["想起モード", "選択肢を隠して先に考える", recallMode, () => setRecallMode((v) => !v)],
+                    ["休眠中も出す", "復習日が来ていない問題も出題する", includeResting, () => setIncludeResting((v) => !v)],
+                  ] as const
+                ).map(([label, desc, on, toggle]) => (
+                  <div
+                    key={label}
+                    className="flex items-center justify-between rounded-xl border border-border px-4 py-3"
+                  >
+                    <div>
+                      <p className="text-sm text-fg">{label}</p>
+                      <p className="text-xs text-muted2">{desc}</p>
+                    </div>
+                    <button
+                      onClick={toggle}
+                      aria-label={label}
+                      className="relative h-6 w-11 shrink-0 rounded-full transition-colors"
+                      style={{ background: on ? "#3b82f6" : "#262b38" }}
+                    >
+                      <span
+                        className="absolute top-1 h-4 w-4 rounded-full bg-white shadow transition-all"
+                        style={{ left: on ? "calc(100% - 20px)" : "4px" }}
+                      />
+                    </button>
+                  </div>
+                ))}
               </div>
-              <button
-                onClick={() => setRecallMode((v) => !v)}
-                className="relative h-6 w-11 shrink-0 rounded-full transition-colors"
-                style={{ background: recallMode ? "#3b82f6" : "#2a2f3f" }}
-              >
-                <span
-                  className="absolute top-1 h-4 w-4 rounded-full bg-white shadow transition-all"
-                  style={{ left: recallMode ? "calc(100% - 20px)" : "4px" }}
-                />
-              </button>
             </div>
+          )}
 
-            <div className="flex items-center justify-between rounded-xl border border-[#2a2f3f] px-4 py-3">
-              <div>
-                <p className="text-sm text-[#c0c8d8]">休眠中も出す</p>
-                <p className="text-xs text-[#555e70]">復習日が来ていない問題も出題する</p>
+          {/* テーマ横断演習（複数セット構成の試験のみ。セット内の分野選択とは独立） */}
+          {isMultiSet && (
+            <div className="card">
+              <ThemePractice
+                examQuestions={examQuestions}
+                examSections={examSections}
+                progressMap={progressMap}
+                now={now}
+                includeResting={includeResting}
+                onStart={startThemeQuiz}
+              />
+            </div>
+          )}
+        </div>
+
+        {/* ================= 右カラム ================= */}
+        <div className="col-side">
+          <div className="card profile-card">
+            <div className="profile-avatar">学</div>
+            <div className="profile-name">{examName}</div>
+            <div className="profile-role">
+              {isMultiSet ? `${subjectName}（全セット横断で分析）` : subjectName}
+            </div>
+            <div className="profile-stats">
+              <div className="profile-stat">
+                <b>{currentGroup?.sets.length ?? 1}</b>
+                <span>セット</span>
               </div>
-              <button
-                onClick={() => setIncludeResting((v) => !v)}
-                className="relative h-6 w-11 shrink-0 rounded-full transition-colors"
-                style={{ background: includeResting ? "#3b82f6" : "#2a2f3f" }}
-              >
-                <span
-                  className="absolute top-1 h-4 w-4 rounded-full bg-white shadow transition-all"
-                  style={{ left: includeResting ? "calc(100% - 20px)" : "4px" }}
-                />
-              </button>
+              <div className="profile-stat">
+                <b>{streak}</b>
+                <span>連続学習日</span>
+              </div>
+              <div className="profile-stat">
+                <b>{totals.answers > 0 ? `${Math.round(groupAccuracy * 100)}%` : "—"}</b>
+                <span>正答率</span>
+              </div>
             </div>
           </div>
-        </details>
 
-        {/* Nav grid */}
-        <div className="grid grid-cols-2 gap-2">
-          {[
-            { label: "単語カード",   action: () => router.push("/flashcards") },
-            { label: "ロードマップ", action: () => router.push("/roadmap") },
-            { label: "学習ログ",     action: () => router.push("/log") },
-            { label: "思考フレーム", action: () => router.push("/mindset") },
-            { label: "コードの読み方", action: () => router.push("/code-tour") },
-            { label: "苦手分析",     action: () => setScreen("analysis") },
-            {
-              label: "書き出し",
-              action: () => {
-                csvRefresh();
-                setScreen("export");
-              },
-            },
-          ].map(({ label, action }) => (
-            <button
-              key={label}
-              onClick={action}
-              className="rounded-xl border border-[#2a2f3f] py-3 text-xs text-[#555e70] transition hover:border-[#3a4050] hover:text-[#8892a4]"
-            >
-              {label}
+          <div className="card">
+            <div className="card-head">
+              <div className="card-title" style={{ fontSize: 13 }}>
+                試験日カレンダー
+              </div>
+              <button onClick={() => setScreen("goal")} className="btn-ghost btn-sm">
+                {examDateKey ? "変更" : "設定"}
+              </button>
+            </div>
+            <div className="cal-strip">
+              {calDays.map((d) => (
+                <div
+                  key={d.key}
+                  className={`cal-day ${d.today ? "today" : ""} ${d.exam ? "exam" : ""}`}
+                >
+                  <span className="dow">{d.dow}</span>
+                  {d.date}
+                </div>
+              ))}
+            </div>
+            <p className="mt-3 px-0.5 text-[11px] text-muted2">
+              {examDateKey
+                ? `${examDateKey.replaceAll("-", "/")} ${goal?.targetName || examName} 受験予定`
+                : "試験日を設定すると、逆算した1日のノルマが出ます"}
+            </p>
+          </div>
+
+          {/* 教科書リンク（試験区分ごと・クリックで外部ページへ） */}
+          <div>
+            <div className="mb-2 flex items-center justify-between">
+              <p className="section-label">教科書・リソース</p>
+              {(textbooks.length > 0 || tbEditing) && (
+                <button
+                  onClick={() => {
+                    setTbEditing((v) => !v);
+                    setTbError(null);
+                  }}
+                  className="text-xs text-muted2 transition hover:text-muted"
+                >
+                  {tbEditing ? "完了" : "編集"}
+                </button>
+              )}
+            </div>
+
+            <div className="card" style={{ padding: 12 }}>
+              {textbooks.length > 0 ? (
+                <div className="res-list">
+                  {textbooks.map((t) => (
+                    <div key={t.id} className="res-item">
+                      <span className="res-tag" style={{ background: "var(--primary)" }} />
+                      <a
+                        href={t.url}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="group min-w-0 flex-1"
+                      >
+                        <div className="t truncate transition group-hover:text-white">
+                          {t.label || t.url}
+                        </div>
+                        <div className="s truncate">{examName}</div>
+                      </a>
+                      {tbEditing ? (
+                        <button
+                          onClick={() => deleteTextbook(t.id)}
+                          aria-label="削除"
+                          className="shrink-0 rounded-md p-1 text-muted2 transition hover:text-[#ef4444]"
+                        >
+                          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
+                            <path d="M6 6l12 12M18 6 6 18" />
+                          </svg>
+                        </button>
+                      ) : (
+                        <svg
+                          width="13"
+                          height="13"
+                          viewBox="0 0 24 24"
+                          fill="none"
+                          stroke="currentColor"
+                          strokeWidth="2"
+                          strokeLinecap="round"
+                          strokeLinejoin="round"
+                          className="shrink-0 text-muted2"
+                        >
+                          <path d="M7 17 17 7M9 7h8v8" />
+                        </svg>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                !tbEditing && (
+                  <button
+                    onClick={() => setTbEditing(true)}
+                    className="w-full rounded-xl border border-dashed border-border px-3 py-3 text-left transition hover:border-border2"
+                  >
+                    <p className="text-[12.5px] text-muted">教科書リンクを追加</p>
+                    <p className="text-[10.5px] text-muted2">
+                      Claude アーティファクト等の公開ページ URL を貼る
+                    </p>
+                  </button>
+                )
+              )}
+
+              {tbEditing && (
+                <div className="mt-2">
+                  <input
+                    type="text"
+                    value={tbDraft.label}
+                    onChange={(e) => setTbDraft((d) => ({ ...d, label: e.target.value }))}
+                    placeholder="タイトル（例: 公式ドキュメントまとめ）"
+                    className="mb-2 w-full rounded-lg border border-border bg-card2 px-3 py-2 text-xs text-white outline-none transition-colors placeholder:text-muted2 focus:border-primary"
+                  />
+                  <input
+                    type="url"
+                    value={tbDraft.url}
+                    onChange={(e) => setTbDraft((d) => ({ ...d, url: e.target.value }))}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter") addTextbook();
+                    }}
+                    placeholder="https://claude.ai/public/artifacts/..."
+                    className="w-full rounded-lg border border-border bg-card2 px-3 py-2 text-xs text-white outline-none transition-colors placeholder:text-muted2 focus:border-primary"
+                  />
+                  {tbError && <p className="mt-1.5 text-[11px] text-[#ef4444]">{tbError}</p>}
+                  <button
+                    onClick={addTextbook}
+                    disabled={!tbDraft.url.trim()}
+                    className="btn-primary mt-2.5 w-full"
+                    style={{ padding: "9px 16px", fontSize: 12.5 }}
+                  >
+                    追加
+                  </button>
+                </div>
+              )}
+            </div>
+          </div>
+
+          <div className="card goal-card">
+            <div className="goal-illustration">
+              <svg width="30" height="30" viewBox="0 0 24 24" fill="none" stroke="#a5b4fc" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M3 12l4-4 4 4 4-8 6 12" />
+                <circle cx="7" cy="8" r="1.2" fill="#a5b4fc" stroke="none" />
+                <circle cx="11" cy="12" r="1.2" fill="#a5b4fc" stroke="none" />
+              </svg>
+            </div>
+            <h3>学習ロードマップ</h3>
+            <p>フェーズごとのマイルストーンで、いまどこにいるかを確認できます。</p>
+            <button className="btn-primary" onClick={() => router.push("/roadmap")}>
+              ロードマップを見る
             </button>
-          ))}
+          </div>
+
+          <div className="card" style={{ padding: 12 }}>
+            <div className="res-list">
+              {[
+                { label: "苦手分析", action: () => setScreen("analysis"), color: "#f87171" },
+                { label: "単語カード", action: () => router.push("/flashcards"), color: "#a78bfa" },
+                { label: "思考フレーム", action: () => router.push("/mindset"), color: "#22c55e" },
+                { label: "コードの読み方", action: () => router.push("/code-tour"), color: "#f97316" },
+                { label: "書き出し（CSV）", action: () => setScreen("export"), color: "#60a5fa" },
+              ].map(({ label, action, color }) => (
+                <button key={label} onClick={action} className="res-item">
+                  <span className="res-tag" style={{ background: color, height: 18 }} />
+                  <div className="t">{label}</div>
+                  <svg
+                    width="13"
+                    height="13"
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="currentColor"
+                    strokeWidth="2"
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    className="ml-auto shrink-0 text-muted2"
+                  >
+                    <path d="M9 18l6-6-6-6" />
+                  </svg>
+                </button>
+              ))}
+            </div>
+          </div>
         </div>
       </div>
-    </div>
+    </>
   );
 }

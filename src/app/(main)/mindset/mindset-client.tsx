@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import Link from "next/link";
+import { usePageHeader } from "@/shared/components/app-shell";
 import {
   CATEGORY_META,
   MINDSET_DATA,
@@ -20,8 +20,10 @@ function pickOfDay(nowMs: number): MPrinciple {
 }
 
 export function MindsetClient() {
-  const wrap = "flex flex-col items-center px-4 pb-28 pt-8";
-  const container = "w-full max-w-[520px]";
+  const wrap = "flex flex-col items-center pb-16";
+  const container = "w-full max-w-[560px]";
+
+  usePageHeader("勉強の思考フレーム", "迷ったときに開く — 考え方から決める");
 
   const [filter, setFilter] = useState<MCategory | "all">("all");
   const [openId, setOpenId] = useState<string | null>(null);
@@ -43,17 +45,6 @@ export function MindsetClient() {
   return (
     <div className={wrap}>
       <div className={container}>
-        {/* ── ヘッダ ── */}
-        <div className="mb-8 flex items-start justify-between">
-          <div>
-            <h1 className="text-base font-semibold text-white">勉強の思考フレーム</h1>
-            <p className="text-xs text-[#555e70]">迷ったときに開く — 考え方から決める</p>
-          </div>
-          <Link href="/" className="mt-1 text-xs text-[#555e70] transition hover:text-[#8892a4]">
-            ← 戻る
-          </Link>
-        </div>
-
         {/* ── 今日の視点 ── */}
         <div className="mb-8">
           <p className="mb-3 text-[10px] font-semibold uppercase tracking-widest text-[#555e70]">

@@ -1,7 +1,7 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import Link from "next/link";
+import { usePageHeader } from "@/shared/components/app-shell";
 import {
   CODE_TOUR_DATA,
   CODE_TOUR_EXERCISES,
@@ -36,8 +36,10 @@ const SECTION_ORDER: CtSection[] = ["map", "trace", "habit", "practice"];
 const TOTAL_COUNT = CODE_TOUR_DATA.length + CODE_TOUR_EXERCISES.length;
 
 export function CodeTourClient() {
-  const wrap = "flex flex-col items-center px-4 pb-28 pt-8";
-  const container = "w-full max-w-[520px]";
+  const wrap = "flex flex-col items-center pb-16";
+  const container = "w-full max-w-[560px]";
+
+  usePageHeader("コードの読み方", "このリポジトリを教材に、未知のコードを読む型を身につける");
 
   const [filter, setFilter] = useState<CtSection | "all">("all");
   const [openId, setOpenId] = useState<string | null>(CODE_TOUR_DATA[0]?.id ?? null);
@@ -51,17 +53,6 @@ export function CodeTourClient() {
   return (
     <div className={wrap}>
       <div className={container}>
-        {/* ── ヘッダ ── */}
-        <div className="mb-8 flex items-start justify-between">
-          <div>
-            <h1 className="text-base font-semibold text-white">コードの読み方</h1>
-            <p className="text-xs text-[#555e70]">このリポジトリを教材に、未知のコードを読む型を身につける</p>
-          </div>
-          <Link href="/" className="mt-1 text-xs text-[#555e70] transition hover:text-[#8892a4]">
-            ← 戻る
-          </Link>
-        </div>
-
         {/* ── セクション絞り込み ── */}
         <div className="mb-4 flex flex-wrap gap-1.5">
           {(["all", ...SECTION_ORDER] as const).map((key) => {

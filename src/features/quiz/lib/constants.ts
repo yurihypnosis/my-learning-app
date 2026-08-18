@@ -13,7 +13,10 @@ export const VERDICT_META: Record<Verdict, { label: string; color: string }> = {
 };
 
 export const CONFIDENCE_LABELS = ["確信あり", "迷った", "勘"] as const;
-export const CONFIDENCE_COLORS = ["#22c55e", "#f59e0b", "#ef4444"] as const;
+// 確信度は「確信あり > 迷った > 勘」の順序尺度。色は意味（良い→悪い）を保ちつつ、
+// 色覚多様性で隣接色が潰れないものを選んである（旧 緑/琥珀/赤 は protan で ΔE 5.7 と
+// 判別不能だった。teal/amber/rose なら 14.1）。
+export const CONFIDENCE_COLORS = ["#14b8a6", "#f59e0b", "#f43f5e"] as const;
 
 // 不正解後の理解度の自己申告。user_question_progress.understanding_level の 1..3 に対応
 // （0=未評価, 4=完璧 は既存定義のまま残す。4 は休眠判定に使われるためここからは書かない）。

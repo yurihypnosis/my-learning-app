@@ -19,8 +19,8 @@ export function ExportScreen({
   csv,
   setScreen,
 }: ExportScreenProps) {
-  const wrap = "flex flex-col items-center px-4 pb-28 pt-8";
-  const container = "w-full max-w-[520px]";
+  const wrap = "flex flex-col items-center pb-16";
+  const container = "w-full max-w-[560px]";
 
   const weakCount = questions.filter((q) => {
     const p = getProgress(progressMap, q.id);

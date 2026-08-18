@@ -20,8 +20,8 @@ export function GoalScreen({
   clearGoal,
   setScreen,
 }: GoalScreenProps) {
-  const wrap = "flex flex-col items-center px-4 pb-28 pt-8";
-  const container = "w-full max-w-[520px]";
+  const wrap = "flex flex-col items-center pb-16";
+  const container = "w-full max-w-[560px]";
 
   return (
     <div className={wrap}>

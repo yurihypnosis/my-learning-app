@@ -346,7 +346,28 @@ export interface Database {
       };
     };
     Views: { [_ in never]: never };
-    Functions: { [_ in never]: never };
+    // 00144_perf_aggregate_rpcs.sql で追加した集計用 RPC。
+    Functions: {
+      subject_stats: {
+        Args: Record<PropertyKey, never>;
+        Returns: {
+          subject_id: string;
+          total: number;
+          attempted: number;
+          answers: number;
+          correct: number;
+          last_answered_at: string | null;
+        }[];
+      };
+      daily_answer_counts: {
+        Args: { p_days?: number };
+        Returns: { day: string; total: number; correct: number }[];
+      };
+      progress_for_subjects: {
+        Args: { p_subject_ids: string[] };
+        Returns: Database["public"]["Tables"]["user_question_progress"]["Row"][];
+      };
+    };
     Enums: { [_ in never]: never };
     CompositeTypes: { [_ in never]: never };
   };
