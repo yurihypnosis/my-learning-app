@@ -21,8 +21,8 @@ export function DoneScreen({
   setScreen,
 }: DoneScreenProps) {
   const { deck, sessionResults, sessionStartPassProb, startReview } = session;
-  const wrap = "flex flex-col items-center px-4 pb-28 pt-8";
-  const container = "w-full max-w-[520px]";
+  const wrap = "flex flex-col items-center pb-16";
+  const container = "w-full max-w-[560px]";
 
   const ok = sessionResults.filter((r) => r.correct).length;
   const pct = sessionResults.length

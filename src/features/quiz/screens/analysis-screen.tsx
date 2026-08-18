@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { getProgress, totalCorrect, totalWrong, type ProgressMap } from "@/features/quiz/lib/selection";
 import {
   type ExamGroup,
@@ -59,14 +59,15 @@ export function AnalysisScreen({
   runBackfill,
   setScreen,
 }: AnalysisScreenProps) {
-  const wrap = "flex flex-col items-center px-4 pb-28 pt-8";
-  const container = "w-full max-w-[520px]";
-
   const [weakFilter, setWeakFilter] = useState<WeakFilter>("all");
 
-  // 試験全体（全Set合算）の分野別分析
-  const sections = analyzeSections(examSections, progressMap);
-  const overview = sectionOverview(sections);
+  // 試験全体（全Set合算）の分野別分析。547問ぶんの集計なので、
+  // フィルタ切り替えや分野の開閉で作り直さないよう memo 化する。
+  const sections = useMemo(
+    () => analyzeSections(examSections, progressMap),
+    [examSections, progressMap]
+  );
+  const overview = useMemo(() => sectionOverview(sections), [sections]);
   const examName =
     examGroups.find((g) => g.examKey === currentExamKey)?.examName ?? subjectName;
   const setNameOf = new Map(examGroups.flatMap((g) => g.sets).map((s) => [s.slug, s.name]));
@@ -76,82 +77,95 @@ export function AnalysisScreen({
     return s || n;
   };
   // 弱点順に並べる: 演習済みは習熟度が低い順、未着手は末尾
-  const ranked = [...sections].sort((a, b) => {
-    const aa = a.attempted > 0;
-    const bb = b.attempted > 0;
-    if (aa !== bb) return aa ? -1 : 1;
-    if (aa) return a.mastery - b.mastery;
-    return a.sort - b.sort;
-  });
+  const ranked = useMemo(
+    () =>
+      [...sections].sort((a, b) => {
+        const aa = a.attempted > 0;
+        const bb = b.attempted > 0;
+        if (aa !== bb) return aa ? -1 : 1;
+        if (aa) return a.mastery - b.mastery;
+        return a.sort - b.sort;
+      }),
+    [sections]
+  );
   const secColor = (pct: number, attempted: number): string =>
-    attempted === 0 ? "#555e70" : pct >= 70 ? "#22c55e" : pct >= 40 ? "#f59e0b" : "#ef4444";
+    attempted === 0 ? "#59627a" : pct >= 70 ? "#22c55e" : pct >= 40 ? "#f59e0b" : "#ef4444";
   const overPct = Math.round(overview.mastery * 100);
 
   // 自己申告した理解度（1..3）が付いている問題（不正解時にクイズ画面から申告）
-  const ratedQuestions = examQuestions.filter((q) => {
-    const lv = getProgress(progressMap, q.id).understanding_level;
-    return lv >= 1 && lv <= 3;
-  });
+  const ratedQuestions = useMemo(
+    () =>
+      examQuestions.filter((q) => {
+        const lv = getProgress(progressMap, q.id).understanding_level;
+        return lv >= 1 && lv <= 3;
+      }),
+    [examQuestions, progressMap]
+  );
   const countOfLevel = (level: number) =>
     ratedQuestions.filter((q) => getProgress(progressMap, q.id).understanding_level === level).length;
 
   // 弱点問題（試験区分の全セット横断）。既定は弱点順（正誤・演習量ベース）に上位8問、
   // 理解度フィルタを選ぶと自己申告「わからない」順に切り替わる。
-  const worst =
-    weakFilter === "all"
-      ? weakReviewPool(examQuestions, progressMap, { limit: 8 })
-      : ratedQuestions
-          .filter((q) => getProgress(progressMap, q.id).understanding_level === weakFilter)
-          .sort(
-            (a, b) =>
-              totalWrong(b, getProgress(progressMap, b.id)) - totalWrong(a, getProgress(progressMap, a.id))
-          );
+  const worst = useMemo(
+    () =>
+      weakFilter === "all"
+        ? weakReviewPool(examQuestions, progressMap, { limit: 8 })
+        : ratedQuestions
+            .filter((q) => getProgress(progressMap, q.id).understanding_level === weakFilter)
+            .sort(
+              (a, b) =>
+                totalWrong(b, getProgress(progressMap, b.id)) -
+                totalWrong(a, getProgress(progressMap, a.id))
+            ),
+    [weakFilter, examQuestions, progressMap, ratedQuestions]
+  );
 
   // 確信度キャリブレーション（直近の解答: 自信度 × 正誤・全セット横断）。
   // 「自信あり」なのに誤答 = 思い込みの危険ゾーン（最優先で復習すべき）。
-  const cal = { sureCorrect: 0, sureWrong: 0, unsureCorrect: 0, unsureWrong: 0 };
-  const dangerQs: QuizQuestion[] = [];
-  for (const q of examQuestions) {
-    const p = getProgress(progressMap, q.id);
-    if (p.last_confidence === null || p.last_is_correct === null) continue;
-    const sure = p.last_confidence === 1;
-    if (p.last_is_correct) sure ? cal.sureCorrect++ : cal.unsureCorrect++;
-    else if (sure) {
-      cal.sureWrong++;
-      dangerQs.push(q);
-    } else cal.unsureWrong++;
-  }
+  const { cal, dangerQs } = useMemo(() => {
+    const c = { sureCorrect: 0, sureWrong: 0, unsureCorrect: 0, unsureWrong: 0 };
+    const danger: QuizQuestion[] = [];
+    for (const q of examQuestions) {
+      const p = getProgress(progressMap, q.id);
+      if (p.last_confidence === null || p.last_is_correct === null) continue;
+      const sure = p.last_confidence === 1;
+      if (p.last_is_correct) sure ? c.sureCorrect++ : c.unsureCorrect++;
+      else if (sure) {
+        c.sureWrong++;
+        danger.push(q);
+      } else c.unsureWrong++;
+    }
+    return { cal: c, dangerQs: danger };
+  }, [examQuestions, progressMap]);
 
   return (
-    <div className={wrap}>
-      <div className={container}>
-        <div className="mb-6 flex items-center justify-between">
-          <h1 className="text-sm font-semibold text-white">苦手分析</h1>
-          <button
-            onClick={() => setScreen("menu")}
-            className="text-xs text-[#555e70] transition hover:text-[#8892a4]"
-          >
-            ← 戻る
-          </button>
-        </div>
-
-        {/* 試験全体サマリ（全Set合算） */}
-        <div className="mb-6 rounded-xl border border-[#2a2f3f] bg-[#1a1d27] p-4">
-          <div className="mb-3 flex items-end justify-between gap-3">
-            <div className="min-w-0">
-              <p className="text-[10px] font-semibold uppercase tracking-widest text-[#555e70]">
-                試験全体
-              </p>
-              <p className="truncate text-sm font-medium text-white">{examName}</p>
-            </div>
-            <p
-              className="shrink-0 text-3xl font-bold tabular-nums"
-              style={{ color: secColor(overPct, overview.attempted) }}
-            >
-              {overview.attempted === 0 ? "—" : `${overPct}%`}
-            </p>
+    <div className="max-w-[900px]">
+      {/* 試験全体サマリ（全Set合算） */}
+      <div className="card overview-card">
+        <div>
+          <div className="card-sub" style={{ marginBottom: 2 }}>
+            試験全体{isMultiSet && "・全セット横断"}
           </div>
-          <div className="mb-3 h-1.5 overflow-hidden rounded-full bg-[#2a2f3f]">
+          <div className="card-title" style={{ fontSize: 15 }}>
+            {examName}
+          </div>
+          <div className="overview-meta">
+            <span>
+              カバー率 {Math.round(overview.coverage * 100)}%（{overview.attempted}/{overview.total}）
+            </span>
+            <span>分野 {overview.sectionCount}</span>
+            {overview.weakSections > 0 && (
+              <span>
+                弱点分野 <b>{overview.weakSections}</b>
+              </span>
+            )}
+          </div>
+        </div>
+        <div className="overview-score">
+          <div className="big" style={{ color: secColor(overPct, overview.attempted) }}>
+            {overview.attempted === 0 ? "—" : `${overPct}%`}
+          </div>
+          <div className="overview-score-track">
             <div
               className="h-full rounded-full transition-all"
               style={{
@@ -160,262 +174,237 @@ export function AnalysisScreen({
               }}
             />
           </div>
-          <div className="flex flex-wrap gap-4 text-xs text-[#555e70]">
-            <span>
-              カバー {Math.round(overview.coverage * 100)}%（{overview.attempted}/{overview.total}）
-            </span>
-            <span>分野 {overview.sectionCount}</span>
-            {overview.weakSections > 0 && (
-              <span className="text-[#ef4444]">弱点分野 {overview.weakSections}</span>
+        </div>
+      </div>
+
+      {/* 分野別 苦手マップ（弱点順・全Set合算・タップでSet別内訳） */}
+      <div className="card-title" style={{ marginBottom: 2 }}>
+        分野別 苦手マップ
+      </div>
+      <div className="card-sub" style={{ marginBottom: 12 }}>
+        弱点が上・クリックでセット別内訳
+      </div>
+
+      {ranked.length === 0 && <p className="mb-5 text-xs text-muted2">まだデータがありません</p>}
+      {ranked.map((sec) => {
+        const pct = Math.round(sec.mastery * 100);
+        const open = expandedSection === sec.name;
+        const color = secColor(pct, sec.attempted);
+        return (
+          <div
+            key={sec.name}
+            role="button"
+            tabIndex={0}
+            className={`section-row ${open ? "open" : ""}`}
+            onClick={() => setExpandedSection(open ? null : sec.name)}
+            onKeyDown={(e) => {
+              if (e.key === "Enter" || e.key === " ") setExpandedSection(open ? null : sec.name);
+            }}
+          >
+            <div className="srow-top">
+              <div className="srow-left">
+                <svg width="9" height="9" viewBox="0 0 10 10" fill="none">
+                  <path
+                    d="M3.5 2L6.5 5L3.5 8"
+                    stroke="currentColor"
+                    strokeWidth="1.5"
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                  />
+                </svg>
+                <span
+                  className="h-2 w-2 shrink-0 rounded-full"
+                  style={{ background: sec.color }}
+                />
+                <span className="sname truncate">{sec.name}</span>
+              </div>
+              <div className="sright">
+                <span>
+                  {sec.attempted}/{sec.total}
+                </span>
+                <span className="spct" style={{ color }}>
+                  {sec.attempted === 0 ? "未着" : `${pct}%`}
+                </span>
+              </div>
+            </div>
+            <div className="strack">
+              <div
+                className="sfill"
+                style={{ width: `${sec.attempted === 0 ? 0 : pct}%`, background: color }}
+              />
+            </div>
+
+            {open && (
+              <div className="set-list">
+                {sec.sets.map((st) => {
+                  const sp = Math.round(st.mastery * 100);
+                  const sc = secColor(sp, st.attempted);
+                  return (
+                    <div key={st.slug} className="set-row">
+                      <b>{shortSet(st.slug)}</b>
+                      <span style={{ color: sc }}>
+                        {st.attempted}/{st.total} ・ {st.attempted === 0 ? "未着" : `${sp}%`}
+                      </span>
+                    </div>
+                  );
+                })}
+              </div>
             )}
           </div>
-        </div>
+        );
+      })}
 
-        {/* 分野別 苦手マップ（弱点順・全Set合算・タップでSet別内訳） */}
-        <div className="mb-3 flex items-baseline justify-between">
-          <p className="text-[10px] font-semibold uppercase tracking-widest text-[#555e70]">
-            分野別 苦手マップ
-          </p>
-          <span className="text-[10px] text-[#3a4050]">弱点が上・タップでSet別内訳</span>
-        </div>
-        <div className="mb-6 space-y-2">
-          {ranked.length === 0 && (
-            <p className="text-xs text-[#555e70]">まだデータがありません</p>
-          )}
-          {ranked.map((sec) => {
-            const pct = Math.round(sec.mastery * 100);
-            const open = expandedSection === sec.name;
-            const color = secColor(pct, sec.attempted);
-            return (
-              <div key={sec.name} className="rounded-xl border border-[#2a2f3f] bg-[#141720] p-3.5">
-                <button
-                  onClick={() => setExpandedSection(open ? null : sec.name)}
-                  className="w-full text-left"
-                >
-                  <div className="mb-2 flex items-center justify-between gap-2">
-                    <div className="flex min-w-0 items-center gap-2">
-                      <svg
-                        width="8"
-                        height="8"
-                        viewBox="0 0 10 10"
-                        fill="none"
-                        className="shrink-0 transition-transform"
-                        style={{ transform: open ? "rotate(90deg)" : "none", color: "#555e70" }}
-                      >
-                        <path d="M3.5 2L6.5 5L3.5 8" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
-                      </svg>
-                      <span className="h-2 w-2 shrink-0 rounded-full" style={{ background: sec.color }} />
-                      <span className="truncate text-xs font-medium text-[#c0c8d8]">{sec.name}</span>
-                    </div>
-                    <div className="flex shrink-0 items-center gap-3 text-[10px] text-[#555e70]">
-                      <span>{sec.attempted}/{sec.total}</span>
-                      <span className="w-9 text-right font-semibold" style={{ color }}>
-                        {sec.attempted === 0 ? "未着" : `${pct}%`}
-                      </span>
-                    </div>
-                  </div>
-                  <div className="h-1.5 overflow-hidden rounded-full bg-[#2a2f3f]">
-                    <div
-                      className="h-full rounded-full transition-all"
-                      style={{ width: `${sec.attempted === 0 ? 0 : pct}%`, background: color }}
-                    />
-                  </div>
-                </button>
-
-                {open && (
-                  <div className="mt-3 space-y-1.5 border-t border-[#2a2f3f] pt-3">
-                    {sec.sets.map((st) => {
-                      const sp = Math.round(st.mastery * 100);
-                      const sc = secColor(sp, st.attempted);
-                      return (
-                        <div key={st.slug} className="flex items-center gap-2">
-                          <span className="w-24 shrink-0 truncate text-[10px] text-[#8892a4]">
-                            {shortSet(st.slug)}
-                          </span>
-                          <div className="h-1 flex-1 overflow-hidden rounded-full bg-[#2a2f3f]">
-                            <div
-                              className="h-full rounded-full"
-                              style={{ width: `${st.attempted === 0 ? 0 : sp}%`, background: sc }}
-                            />
-                          </div>
-                          <span className="w-16 shrink-0 text-right text-[10px] tabular-nums" style={{ color: sc }}>
-                            {st.attempted === 0 ? "未着" : `${sp}%`}
-                            <span className="ml-1 text-[#3a4050]">{st.attempted}/{st.total}</span>
-                          </span>
-                        </div>
-                      );
-                    })}
-                  </div>
-                )}
-              </div>
-            );
-          })}
-        </div>
-
-        {/* Worst questions */}
-        <div className="mb-3 flex items-center justify-between">
-          <p className="text-[10px] font-semibold uppercase tracking-widest text-[#555e70]">
-            {isMultiSet ? "弱点問題（全セット）" : "弱点問題"}
-          </p>
-          {worst.length > 0 && (
-            <button
-              onClick={() => startReview(worst.slice(0, WEAK_SESSION_MAX))}
-              className="rounded-lg border border-[#2a2f3f] px-3 py-1 text-[11px] font-medium text-[#8892a4] transition hover:border-[#3b82f6] hover:text-white"
-            >
-              まとめて復習 →
-            </button>
-          )}
-        </div>
-
-        {/* 絞り込み: 既定は弱点順、または不正解時に申告した理解度で絞る */}
-        <div className="mb-3 flex flex-wrap gap-1.5">
-          {WEAK_FILTERS.map(({ key, label, color }) => {
-            const on = weakFilter === key;
-            const n = key === "all" ? undefined : countOfLevel(key as number);
-            return (
-              <button
-                key={key}
-                onClick={() => setWeakFilter(key)}
-                className="flex items-center gap-1.5 rounded-full border px-3 py-1 text-xs transition"
-                style={{
-                  borderColor: on ? color + "55" : "#2a2f3f",
-                  color: on ? color : "#8892a4",
-                  background: on ? color + "0f" : "transparent",
-                }}
-              >
-                <span
-                  className="h-1.5 w-1.5 shrink-0 rounded-full"
-                  style={{ background: on ? color : "#3a4050" }}
-                />
-                {label}
-                {n !== undefined && <span className="text-[10px] tabular-nums opacity-60">{n}</span>}
-              </button>
-            );
-          })}
-        </div>
-
-        <p className="mb-3 text-[10px] text-[#3a4050]">
-          タップするとその問題だけを復習できます
-        </p>
-        <div className="mb-6 space-y-1.5">
-          {worst.length === 0 && (
-            <p className="text-xs text-[#555e70]">
-              {weakFilter === "all"
-                ? "弱点問題はありません（演習するとここに出ます）"
-                : "この理解度で申告した問題はありません（不正解時に解説の下で申告できます）"}
-            </p>
-          )}
-          {worst.map((q) => {
-            const p = getProgress(progressMap, q.id);
-            const understandingMeta =
-              p.understanding_level >= 1 && p.understanding_level <= 3
-                ? COMPREHENSION_LEVELS.find((c) => c.level === p.understanding_level)
-                : undefined;
-            return (
-              <button
-                key={q.id}
-                onClick={() => startReview([q])}
-                className="flex w-full items-start gap-3 rounded-xl border border-[#2a2f3f] px-3.5 py-3 text-left transition hover:border-[#3b82f6] hover:bg-[#141720]"
-              >
-                <span
-                  className="mt-0.5 h-2 w-2 shrink-0 rounded-full"
-                  style={{ background: q.category_color }}
-                />
-                <div className="min-w-0 flex-1">
-                  <p className="truncate text-xs text-[#8892a4]">
-                    {q.question_text.slice(0, 55)}…
-                  </p>
-                  <p className="mt-0.5 text-[10px] text-[#555e70]">
-                    {isMultiSet && (
-                      <span className="mr-2 rounded bg-[#1e2230] px-1.5 py-px text-[#8892a4]">
-                        {shortSet(examQuestionSlug[q.id] ?? "")}
-                      </span>
-                    )}
-                    誤 {totalWrong(q, p)} 正 {totalCorrect(p)}
-                    {p.last_confidence !== null && (
-                      <span className="ml-2" style={{ color: CONFIDENCE_COLORS[(p.last_confidence ?? 1) - 1] }}>
-                        {CONFIDENCE_LABELS[(p.last_confidence ?? 1) - 1]}
-                      </span>
-                    )}
-                    {understandingMeta && (
-                      <span className="ml-2" style={{ color: understandingMeta.color }}>
-                        {understandingMeta.label}
-                      </span>
-                    )}
-                  </p>
-                </div>
-                <span className="mt-0.5 shrink-0 text-xs text-[#3a4050]">→</span>
-              </button>
-            );
-          })}
-        </div>
-
-        {/* 確信度キャリブレーション */}
-        <p className="mb-3 text-[10px] font-semibold uppercase tracking-widest text-[#555e70]">
-          確信度キャリブレーション
-        </p>
-        {cal.sureWrong > 0 && (
-          <div className="mb-3 flex items-center justify-between gap-3 rounded-xl border border-[#3f1515] bg-[#160606] px-4 py-3">
-            <div className="min-w-0">
-              <p className="text-xs font-semibold text-[#ef4444]">
-                「自信あり」なのに誤答 {cal.sureWrong}問
-              </p>
-              <p className="text-[11px] text-[#8892a4]">思い込みの危険ゾーン。最優先で復習を。</p>
-            </div>
-            <button
-              onClick={() => startReview(dangerQs)}
-              className="shrink-0 rounded-lg border border-[#3f1515] px-3 py-1.5 text-[11px] font-medium text-[#ef4444] transition hover:bg-[#1a0808]"
-            >
-              復習 →
-            </button>
-          </div>
-        )}
-        <div className="mb-6 grid grid-cols-[56px_1fr_1fr] gap-1.5">
-          <div />
-          <div className="text-center text-[10px] font-mono text-[#555e70]">正解</div>
-          <div className="text-center text-[10px] font-mono text-[#555e70]">誤答</div>
-
-          <div className="flex items-center text-[10px] font-mono text-[#555e70]">自信あり</div>
-          <div className="rounded-lg border border-[#2a2f3f] bg-[#141720] py-2.5 text-center">
-            <span className="text-lg font-bold tabular-nums text-[#22c55e]">{cal.sureCorrect}</span>
-          </div>
-          <div
-            className="rounded-lg border py-2.5 text-center"
-            style={{ borderColor: cal.sureWrong > 0 ? "#ef4444" : "#2a2f3f", background: cal.sureWrong > 0 ? "#160606" : "#141720" }}
+      {/* 弱点問題 */}
+      <div className="catalog-toolbar" style={{ marginTop: 20, marginBottom: 12 }}>
+        <div className="card-title">{isMultiSet ? "弱点問題（全セット）" : "弱点問題"}</div>
+        {worst.length > 0 && (
+          <button
+            className="btn-ghost btn-sm"
+            onClick={() => startReview(worst.slice(0, WEAK_SESSION_MAX))}
           >
-            <span className="text-lg font-bold tabular-nums" style={{ color: cal.sureWrong > 0 ? "#ef4444" : "#3a4050" }}>
-              {cal.sureWrong}
-            </span>
-          </div>
+            まとめて復習 →
+          </button>
+        )}
+      </div>
 
-          <div className="flex items-center text-[10px] font-mono text-[#555e70]">自信なし</div>
-          <div className="rounded-lg border border-[#2a2f3f] bg-[#141720] py-2.5 text-center">
-            <span className="text-lg font-bold tabular-nums text-[#8892a4]">{cal.unsureCorrect}</span>
-          </div>
-          <div className="rounded-lg border border-[#2a2f3f] bg-[#141720] py-2.5 text-center">
-            <span className="text-lg font-bold tabular-nums text-[#8892a4]">{cal.unsureWrong}</span>
-          </div>
-        </div>
-
-        {/* FSRS 再構築（過去の解答から記憶エンジンを一括計算） */}
-        <div className="mt-2 rounded-xl border border-[#2a2f3f] bg-[#141720] p-3.5">
-          <div className="flex items-center justify-between gap-3">
-            <div className="min-w-0">
-              <p className="text-xs font-medium text-[#c0c8d8]">記憶エンジンを再構築</p>
-              <p className="text-[11px] text-[#555e70]">
-                過去の解答から復習間隔・合格ナビの精度を作り直します
-              </p>
-            </div>
+      {/* 絞り込み: 既定は弱点順、または不正解時に申告した理解度で絞る */}
+      <div className="filter-chips" style={{ marginBottom: 14 }}>
+        {WEAK_FILTERS.map(({ key, label, color }) => {
+          const on = weakFilter === key;
+          const n = key === "all" ? undefined : countOfLevel(key as number);
+          return (
             <button
-              onClick={runBackfill}
-              disabled={backfilling}
-              className="shrink-0 rounded-lg border border-[#2a2f3f] px-3 py-1.5 text-[11px] font-medium text-[#8892a4] transition hover:border-[#3b82f6] hover:text-white disabled:opacity-50"
+              key={String(key)}
+              onClick={() => setWeakFilter(key)}
+              className="filter-chip"
+              style={{
+                borderColor: on ? color + "55" : undefined,
+                color: on ? color : undefined,
+                background: on ? color + "14" : undefined,
+              }}
             >
-              {backfilling ? "計算中…" : "⟳ 再構築"}
+              <span
+                className="h-1.5 w-1.5 shrink-0 rounded-full"
+                style={{ background: on ? color : "#343a4a" }}
+              />
+              {label}
+              {n !== undefined && <span className="n">{n}</span>}
             </button>
+          );
+        })}
+      </div>
+
+      <p className="mb-2.5 text-[10.5px] text-muted2">クリックするとその問題だけを復習できます</p>
+
+      <div className="mb-6">
+        {worst.length === 0 && (
+          <p className="text-xs text-muted2">
+            {weakFilter === "all"
+              ? "弱点問題はありません（演習するとここに出ます）"
+              : "この理解度で申告した問題はありません（不正解時に解説の下で申告できます）"}
+          </p>
+        )}
+        {worst.map((q) => {
+          const p = getProgress(progressMap, q.id);
+          const understandingMeta =
+            p.understanding_level >= 1 && p.understanding_level <= 3
+              ? COMPREHENSION_LEVELS.find((c) => c.level === p.understanding_level)
+              : undefined;
+          return (
+            <button key={q.id} onClick={() => startReview([q])} className="weak-q-row">
+              <span className="qdot" style={{ background: q.category_color }} />
+              <div className="min-w-0 flex-1">
+                <p className="qtext">{q.question_text}</p>
+                <p className="qmeta">
+                  {isMultiSet && <span>{shortSet(examQuestionSlug[q.id] ?? "")}</span>}
+                  <span>
+                    誤 {totalWrong(q, p)} 正 {totalCorrect(p)}
+                  </span>
+                  {p.last_confidence !== null && (
+                    <span style={{ color: CONFIDENCE_COLORS[(p.last_confidence ?? 1) - 1] }}>
+                      {CONFIDENCE_LABELS[(p.last_confidence ?? 1) - 1]}
+                    </span>
+                  )}
+                  {understandingMeta && (
+                    <span style={{ color: understandingMeta.color }}>{understandingMeta.label}</span>
+                  )}
+                </p>
+              </div>
+              <span className="arrow">→</span>
+            </button>
+          );
+        })}
+      </div>
+
+      {/* 確信度キャリブレーション */}
+      <div className="card-title" style={{ marginBottom: 2 }}>
+        確信度キャリブレーション
+      </div>
+      <div className="card-sub" style={{ marginBottom: 12 }}>
+        「自信あり」なのに誤答＝思い込みの危険ゾーン
+      </div>
+
+      {cal.sureWrong > 0 && (
+        <div className="danger-banner">
+          <div>
+            <p className="m-0 text-[12.5px] font-bold text-[#f87171]">
+              「自信あり」なのに誤答 {cal.sureWrong}問
+            </p>
+            <p className="m-0 mt-0.5 text-[11px] text-muted">最優先で復習を。</p>
           </div>
+          <button
+            className="btn-ghost btn-sm"
+            style={{ borderColor: "rgba(239,68,68,.4)", color: "var(--red)" }}
+            onClick={() => startReview(dangerQs)}
+          >
+            復習 →
+          </button>
+        </div>
+      )}
+
+      <div className="cal-grid" style={{ marginBottom: 20 }}>
+        <div />
+        <div className="hd">正解</div>
+        <div className="hd">誤答</div>
+        <div className="rl">自信あり</div>
+        <div className="cell">
+          <b style={{ color: "var(--green)" }}>{cal.sureCorrect}</b>
+        </div>
+        <div className={`cell ${cal.sureWrong > 0 ? "danger" : ""}`}>
+          <b style={{ color: cal.sureWrong > 0 ? undefined : "#343a4a" }}>{cal.sureWrong}</b>
+        </div>
+        <div className="rl">自信なし</div>
+        <div className="cell">
+          <b style={{ color: "var(--muted)" }}>{cal.unsureCorrect}</b>
+        </div>
+        <div className="cell">
+          <b style={{ color: "var(--muted)" }}>{cal.unsureWrong}</b>
+        </div>
+      </div>
+
+      {/* FSRS 再構築（過去の解答から記憶エンジンを一括計算） */}
+      <div className="card flex items-center justify-between gap-3">
+        <div className="min-w-0">
+          <p className="m-0 text-[12.5px] font-semibold">記憶エンジンを再構築</p>
+          <p className="m-0 mt-0.5 text-[11px] text-muted2">
+            過去の解答から復習間隔・合格ナビの精度を作り直します
+          </p>
           {backfillMsg && <p className="mt-2 text-[11px] text-[#3E8E6E]">{backfillMsg}</p>}
         </div>
+        <button
+          className="btn-ghost btn-sm shrink-0"
+          onClick={runBackfill}
+          disabled={backfilling}
+          style={backfilling ? { opacity: 0.5 } : undefined}
+        >
+          {backfilling ? "計算中…" : "⟳ 再構築"}
+        </button>
+      </div>
+
+      <div className="mt-4">
+        <button className="btn-ghost btn-sm" onClick={() => setScreen("menu")}>
+          ← ダッシュボードへ戻る
+        </button>
       </div>
     </div>
   );

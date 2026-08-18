@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useReducer } from "react";
+import { useEffect, useReducer, useState } from "react";
 import type { Progress, QuizQuestion } from "@/features/quiz/lib/types";
 import { getProgress, shuffleOptions, type ProgressMap } from "@/features/quiz/lib/selection";
 import { calcMasteryStats } from "@/features/quiz/lib/stats";
@@ -147,6 +147,9 @@ type Params = {
   recordAnswer: RecordAnswerFn;
   recallMode: boolean;
   isSpeakFirstQ: (q: QuizQuestion) => boolean;
+  // 現在セット以外の問題は本文だけを持っている（選択肢が空）。
+  // 出題直前にサーバから全カラムを取り直すための解決関数。
+  hydrate: (qs: QuizQuestion[]) => Promise<QuizQuestion[]>;
 };
 
 // 演習セッションの状態機械（出題列・解答・確信度・結果蓄積・前後移動）。
@@ -159,8 +162,10 @@ export function useQuizSession({
   recordAnswer,
   recallMode,
   isSpeakFirstQ,
+  hydrate,
 }: Params) {
   const [state, dispatch] = useReducer(sessionReducer, INITIAL);
+  const [deckLoading, setDeckLoading] = useState(false);
   const { deck, idx, picked, multiSelected, answered, confidence, choicesHidden, memoText } = state;
 
   // メモの自動保存（入力が止まって 800ms 後）
@@ -190,22 +195,32 @@ export function useQuizSession({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [screen, deck, idx, choicesHidden, answered]);
 
-  const enterQuiz = (pool: QuizQuestion[]) => {
+  // 出題列を確定してセッションを開始する。本文だけの軽量問題が混じっていれば
+  // ここで全カラムを取り直す（選択肢のシャッフルは実データが揃ってから）。
+  const enterQuiz = async (pool: QuizQuestion[], shuffleChoices = false) => {
     if (!pool.length) return;
+    let deck = pool;
+    if (pool.some((q) => q.options.length === 0)) {
+      setDeckLoading(true);
+      try {
+        deck = await hydrate(pool);
+      } finally {
+        setDeckLoading(false);
+      }
+    }
+    if (shuffleChoices) deck = deck.map(shuffleOptions);
     dispatch({
       type: "START_SESSION",
-      deck: pool,
-      choicesHidden: recallMode || isSpeakFirstQ(pool[0]),
-      memo: getProgress(progressMap, pool[0].id).memo,
+      deck,
+      choicesHidden: recallMode || isSpeakFirstQ(deck[0]),
+      memo: getProgress(progressMap, deck[0].id).memo,
       passProb: calcMasteryStats(questions, progressMap).passProb,
     });
     setScreen("quiz");
   };
 
   // 苦手問題など、指定した問題だけを復習するセッションを開始（選択肢はシャッフル）
-  const startReview = (qs: QuizQuestion[]) => {
-    enterQuiz(qs.map(shuffleOptions));
-  };
+  const startReview = (qs: QuizQuestion[]) => enterQuiz(qs, true);
 
   const submitAnswer = () => {
     if (answered || confidence === null) return;
@@ -274,6 +289,7 @@ export function useQuizSession({
 
   return {
     ...state,
+    deckLoading,
     pick: (index: number) => dispatch({ type: "PICK", index }),
     toggleMulti: (index: number) => dispatch({ type: "TOGGLE_MULTI", index }),
     setConfidence: (level: number) => dispatch({ type: "SET_CONFIDENCE", level }),

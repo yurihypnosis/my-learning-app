@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
-import Link from "next/link";
+import { usePageHeader } from "@/shared/components/app-shell";
 import { createClient } from "@/shared/lib/supabase/client";
 import type { Json } from "@/types/database";
 import {
@@ -53,8 +53,10 @@ const STATUS_META: Record<RStatus, { label: string; color: string }> = {
 const passColor = (p: number) => (p >= 70 ? "#22c55e" : p >= 50 ? "#f59e0b" : "#ef4444");
 
 export function RoadmapClient({ acePassProb, userId, initialDoc, examGoals }: Props) {
-  const wrap = "flex flex-col items-center px-4 pb-28 pt-8";
-  const container = "w-full max-w-[520px]";
+  const wrap = "flex flex-col items-center pb-16";
+  const container = "w-full max-w-[560px]";
+
+  usePageHeader("学習ロードマップ", "DevOpsならユウ — 設計・自動化・組織浸透");
 
   const supabase = useMemo(() => createClient(), []);
   const [doc, setDoc] = useState<RoadmapDoc>(initialDoc);
@@ -304,22 +306,10 @@ export function RoadmapClient({ acePassProb, userId, initialDoc, examGoals }: Pr
   return (
     <div className={wrap}>
       <div className={container}>
-        <div className="mb-8 flex items-center justify-between">
-          <div>
-            <h1 className="text-base font-semibold text-white">学習ロードマップ</h1>
-            <p className="text-xs text-[#555e70]">DevOpsならユウ — 設計・自動化・組織浸透</p>
-          </div>
-          <div className="flex items-center gap-3">
-            <button
-              onClick={() => setScreen("edit")}
-              className="rounded-lg border border-[#2a2f3f] px-2.5 py-1.5 text-[11px] text-[#8892a4] transition hover:border-[#3a4050] hover:text-white"
-            >
-              ⚙ 編集
-            </button>
-            <Link href="/" className="text-xs text-[#555e70] transition hover:text-[#8892a4]">
-              ← 戻る
-            </Link>
-          </div>
+        <div className="mb-6 flex items-center justify-end">
+          <button onClick={() => setScreen("edit")} className="btn-ghost btn-sm">
+            ⚙ 編集
+          </button>
         </div>
 
         {/* 試験日サマリ（user_exam_goals） */}
@@ -499,12 +489,6 @@ export function RoadmapClient({ acePassProb, userId, initialDoc, examGoals }: Pr
           })}
         </div>
 
-        <Link
-          href="/"
-          className="block w-full rounded-xl border border-[#2a2f3f] py-3 text-center text-sm text-[#555e70] transition hover:border-[#3a4050] hover:text-[#8892a4]"
-        >
-          メニューに戻る
-        </Link>
       </div>
     </div>
   );

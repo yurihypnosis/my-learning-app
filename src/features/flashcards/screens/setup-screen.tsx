@@ -1,4 +1,3 @@
-import Link from "next/link";
 import {
   FLASHCARD_DECKS,
   categoryColor,
@@ -60,21 +59,6 @@ export function SetupScreen({ filter, onStart }: SetupScreenProps) {
             })}
           </div>
         )}
-
-        <div className="mb-8 flex items-start justify-between">
-          <div>
-            <h1 className="text-base font-semibold text-white">単語カード</h1>
-            <p className="text-xs text-[#555e70]">
-              {deck.name} · 全 {deck.cards.length} 語
-            </p>
-          </div>
-          <Link
-            href="/"
-            className="mt-1 text-xs text-[#555e70] transition hover:text-[#8892a4]"
-          >
-            ← 戻る
-          </Link>
-        </div>
 
         {/* 学習の定着（進捗の主役） */}
         <div className="mb-8">

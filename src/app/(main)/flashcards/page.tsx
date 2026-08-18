@@ -1,13 +1,11 @@
-import { createServerSupabaseClient } from "@/shared/lib/supabase/server";
+import { getServerSupabase, getSessionUser } from "@/shared/lib/supabase/server";
 import { FlashcardsClient, type TermRow } from "./flashcards-client";
 
 export const dynamic = "force-dynamic";
 
 export default async function FlashcardsPage() {
-  const supabase = await createServerSupabaseClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
+  const supabase = await getServerSupabase();
+  const user = await getSessionUser();
 
   let initialProgress: TermRow[] = [];
   if (user) {

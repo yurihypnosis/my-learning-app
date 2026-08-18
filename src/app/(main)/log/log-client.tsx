@@ -1,26 +1,7 @@
 "use client";
 
-import Link from "next/link";
-
-export interface AnswerEvent {
-  answered_at: string;
-  is_correct: boolean;
-  confidence: number | null;
-  category_name: string;
-  category_color: string;
-  subject_slug: string;
-}
-
-interface DayEntry {
-  dateKey: string;
-  label: string;
-  total: number;
-  correct: number;
-  categories: { name: string; color: string; count: number }[];
-  subjects: { slug: string; count: number }[];
-  firstAt: string;
-  lastAt: string;
-}
+import { usePageHeader } from "@/shared/components/app-shell";
+import { shiftKey, WEEKDAYS, type DayEntry } from "./build-days";
 
 const SUBJECT_LABELS: Record<string, string> = {
   "gcp-ace":       "GCP ACE",
@@ -31,276 +12,216 @@ const SUBJECT_LABELS: Record<string, string> = {
   "gcp-pcde":      "Cloud DevOps",
 };
 
-const WEEKDAYS = ["日", "月", "火", "水", "木", "金", "土"];
+// ヒートマップの5段階。0 は枠だけの空セル、以降は解答数に応じて青が濃くなる。
+const HEAT_STEPS = [
+  "var(--card2)",
+  "rgba(59,130,246,.25)",
+  "rgba(59,130,246,.45)",
+  "rgba(59,130,246,.7)",
+  "var(--primary2)",
+];
 
-function toJSTDate(iso: string): Date {
-  const d = new Date(iso);
-  return new Date(d.getTime() + 9 * 60 * 60 * 1000);
-}
-
-function toDateKey(iso: string): string {
-  const d = toJSTDate(iso);
-  return `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, "0")}-${String(d.getUTCDate()).padStart(2, "0")}`;
-}
-
-function toTimeLabel(iso: string): string {
-  const d = toJSTDate(iso);
-  return `${String(d.getUTCHours()).padStart(2, "0")}:${String(d.getUTCMinutes()).padStart(2, "0")}`;
-}
-
-function buildDays(events: AnswerEvent[], todayKey: string, yesterdayKey: string): DayEntry[] {
-  const map = new Map<string, AnswerEvent[]>();
-  for (const ev of events) {
-    const key = toDateKey(ev.answered_at);
-    if (!map.has(key)) map.set(key, []);
-    map.get(key)!.push(ev);
-  }
-
-  return Array.from(map.entries())
-    .sort(([a], [b]) => b.localeCompare(a))
-    .map(([key, evs]) => {
-      const d = new Date(key + "T00:00:00+09:00");
-      const dow = WEEKDAYS[d.getDay()];
-      const mm = d.getMonth() + 1;
-      const dd = d.getDate();
-      const label =
-        key === todayKey ? `今日 ${mm}/${dd}（${dow}）`
-          : key === yesterdayKey ? `昨日 ${mm}/${dd}（${dow}）`
-            : `${mm}/${dd}（${dow}）`;
-
-      const catMap = new Map<string, { color: string; count: number }>();
-      const subMap = new Map<string, number>();
-      let correct = 0;
-
-      for (const ev of evs) {
-        if (ev.is_correct) correct++;
-        const prev = catMap.get(ev.category_name);
-        catMap.set(ev.category_name, { color: ev.category_color, count: (prev?.count ?? 0) + 1 });
-        subMap.set(ev.subject_slug, (subMap.get(ev.subject_slug) ?? 0) + 1);
-      }
-
-      const sorted = evs.map((e) => e.answered_at).sort();
-      return {
-        dateKey: key,
-        label,
-        total: evs.length,
-        correct,
-        categories: Array.from(catMap.entries())
-          .map(([name, v]) => ({ name, color: v.color, count: v.count }))
-          .sort((a, b) => b.count - a.count),
-        subjects: Array.from(subMap.entries())
-          .map(([slug, count]) => ({ slug, count }))
-          .sort((a, b) => b.count - a.count),
-        firstAt: toTimeLabel(sorted[0]),
-        lastAt: toTimeLabel(sorted[sorted.length - 1]),
-      };
-    });
-}
-
-function calcStreak(days: DayEntry[], todayKey: string): number {
-  const set = new Set(days.map((d) => d.dateKey));
-  const start = set.has(todayKey) ? todayKey : (() => {
-    const d = new Date(todayKey + "T00:00:00+09:00");
-    d.setDate(d.getDate() - 1);
-    const y = d.toISOString().slice(0, 10);
-    return set.has(y) ? y : null;
-  })();
-  if (!start) return 0;
-  let streak = 0;
-  const cur = new Date(start + "T00:00:00+09:00");
-  while (set.has(cur.toISOString().slice(0, 10))) {
-    streak++;
-    cur.setDate(cur.getDate() - 1);
-  }
-  return streak;
-}
-
-function WeeklyBar({ days, todayKey }: { days: DayEntry[]; todayKey: string }) {
+function WeeklyBars({ days, todayKey }: { days: DayEntry[]; todayKey: string }) {
   const dayMap = new Map(days.map((d) => [d.dateKey, d.total]));
   const bars = Array.from({ length: 7 }, (_, i) => {
-    const d = new Date(todayKey + "T00:00:00+09:00");
-    d.setDate(d.getDate() - (6 - i));
-    const key = d.toISOString().slice(0, 10);
-    return { key, dow: WEEKDAYS[d.getDay()], count: dayMap.get(key) ?? 0 };
+    const key = shiftKey(todayKey, i - 6);
+    return {
+      key,
+      dow: WEEKDAYS[new Date(key + "T00:00:00Z").getUTCDay()],
+      count: dayMap.get(key) ?? 0,
+    };
   });
   const max = Math.max(...bars.map((b) => b.count), 1);
 
   return (
-    <div className="flex h-16 items-end gap-1">
-      {bars.map((b) => {
-        const isToday = b.key === todayKey;
-        const pct = b.count > 0 ? Math.max((b.count / max) * 100, 8) : 0;
-        return (
-          <div key={b.key} className="flex flex-1 flex-col items-center gap-1">
-            <span className="text-[9px] text-[#555e70]">{b.count > 0 ? b.count : ""}</span>
-            <div className="flex w-full flex-1 items-end">
-              <div
-                className="w-full rounded-sm transition-all"
-                style={{
-                  height: `${pct}%`,
-                  minHeight: b.count > 0 ? 4 : 0,
-                  background: isToday ? "#3b82f6" : b.count > 0 ? "#1e3a5f" : "transparent",
-                }}
-              />
-            </div>
-            <span
-              className="text-[9px] font-medium"
-              style={{ color: isToday ? "#3b82f6" : "#555e70" }}
-            >
-              {b.dow}
-            </span>
+    <div className="bars" style={{ height: 100 }}>
+      {bars.map((b, i) => (
+        <div key={b.key} className="bar-col">
+          <div className="bar-track">
+            <div
+              className={`bar-fill ${i === 6 ? "today" : ""}`}
+              style={{ height: b.count > 0 ? `${Math.max(8, (b.count / max) * 100)}%` : "0%" }}
+            />
           </div>
-        );
-      })}
+          <span
+            className="bar-label"
+            style={i === 6 ? { color: "var(--purple)", fontWeight: 700 } : undefined}
+          >
+            {b.dow}
+          </span>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+// 直近90日を GitHub の草のように7行×週列で並べる。列は日曜始まり。
+function Heatmap({ days, todayKey }: { days: DayEntry[]; todayKey: string }) {
+  const dayMap = new Map(days.map((d) => [d.dateKey, d.total]));
+  const max = Math.max(...days.map((d) => d.total), 1);
+
+  // 列を「日曜〜土曜」でそろえるため、90日前の直前の日曜から今週の土曜までを描く。
+  const dowOf = (key: string) => new Date(key + "T00:00:00Z").getUTCDay();
+  const rawStart = shiftKey(todayKey, -89);
+  const start = shiftKey(rawStart, -dowOf(rawStart));
+  const end = shiftKey(todayKey, 6 - dowOf(todayKey));
+  const length = (Date.parse(end) - Date.parse(start)) / 86_400_000 + 1;
+
+  const cells = Array.from({ length }, (_, i) => {
+    const key = shiftKey(start, i);
+    const count = dayMap.get(key) ?? 0;
+    const future = key > todayKey;
+    const level = count === 0 ? 0 : Math.min(4, Math.ceil((count / max) * 4));
+    const [, mm, dd] = key.split("-");
+    return { key, count, future, level, tip: `${Number(mm)}/${Number(dd)} ・ ${count}問` };
+  });
+
+  return (
+    <div className="heatmap-wrap">
+      <div className="heatmap-grid">
+        {cells.map((c) => (
+          <div
+            key={c.key}
+            className="heatmap-cell"
+            data-tip={c.future ? undefined : c.tip}
+            style={{
+              background: c.future ? "transparent" : HEAT_STEPS[c.level],
+              border: c.level === 0 && !c.future ? "1px solid var(--border)" : undefined,
+              opacity: c.future ? 0.25 : 1,
+            }}
+          />
+        ))}
+      </div>
     </div>
   );
 }
 
 interface Props {
-  events: AnswerEvent[];
-  todayKey: string;
-  yesterdayKey: string;
+  // 日別集計はサーバで済ませてある（生イベントは運ばない）。
+  days: DayEntry[];
+  streak: number;
   totalEvents: number;
+  todayKey: string;
 }
 
-export function LogClient({ events, todayKey, yesterdayKey }: Props) {
-  const days = buildDays(events, todayKey, yesterdayKey);
-  const streak = calcStreak(days, todayKey);
+export function LogClient({ days, streak, totalEvents, todayKey }: Props) {
 
-  const wrap = "flex flex-col items-center px-4 pb-28 pt-8";
-  const container = "w-full max-w-[520px]";
+  usePageHeader("学習ログ", "直近90日の学習記録");
 
   return (
-    <div className={wrap}>
-      <div className={container}>
-        {/* Header */}
-        <div className="mb-6 flex items-center justify-between">
-          <div>
-            <h1 className="text-base font-semibold text-white">学習ログ</h1>
-            <p className="text-xs text-[#555e70]">直近 90 日</p>
-          </div>
-          <Link
-            href="/"
-            className="text-xs text-[#555e70] transition hover:text-[#8892a4]"
-          >
-            ← 戻る
-          </Link>
+    <>
+      <div className="log-stat-row">
+        <div className="log-stat">
+          <b>{streak > 0 ? streak : "—"}</b>
+          <span>日連続</span>
         </div>
-
-        {/* Stats */}
-        <div className="mb-6 grid grid-cols-3 gap-2">
-          <div className="rounded-xl border border-[#2a2f3f] bg-[#141720] py-4 text-center">
-            <p className="text-xl font-bold tabular-nums text-white">
-              {streak > 0 ? streak : "—"}
-            </p>
-            <p className="text-[10px] text-[#555e70]">日連続</p>
-          </div>
-          <div className="rounded-xl border border-[#2a2f3f] bg-[#141720] py-4 text-center">
-            <p className="text-xl font-bold tabular-nums text-white">{days.length}</p>
-            <p className="text-[10px] text-[#555e70]">日間</p>
-          </div>
-          <div className="rounded-xl border border-[#2a2f3f] bg-[#141720] py-4 text-center">
-            <p className="text-xl font-bold tabular-nums text-white">{events.length}</p>
-            <p className="text-[10px] text-[#555e70]">問演習</p>
-          </div>
+        <div className="log-stat">
+          <b>{days.length}</b>
+          <span>学習日数 / 90日</span>
         </div>
-
-        {/* Weekly chart */}
-        {days.length > 0 && (
-          <div className="mb-6 rounded-xl border border-[#2a2f3f] bg-[#141720] px-4 py-4">
-            <p className="mb-3 text-[10px] font-semibold uppercase tracking-widest text-[#555e70]">
-              直近 7 日間
-            </p>
-            <WeeklyBar days={days} todayKey={todayKey} />
-          </div>
-        )}
-
-        {/* Daily list */}
-        {days.length === 0 ? (
-          <div className="rounded-xl border border-[#2a2f3f] py-12 text-center">
-            <p className="text-sm text-[#8892a4]">まだ記録がありません</p>
-            <p className="mt-1 text-xs text-[#555e70]">問題を解く・単語カードをめくると自動的に記録されます</p>
-          </div>
-        ) : (
-          <div className="space-y-2">
-            {days.map((day) => {
-              const acc = Math.round((day.correct / day.total) * 100);
-              const accColor = acc >= 70 ? "#22c55e" : acc >= 50 ? "#f59e0b" : "#ef4444";
-              return (
-                <div key={day.dateKey} className="rounded-xl border border-[#2a2f3f] bg-[#141720] px-4 py-3.5">
-                  {/* Day header */}
-                  <div className="mb-2.5 flex items-center justify-between">
-                    <p className="text-xs font-medium text-[#c0c8d8]">{day.label}</p>
-                    <p className="text-[10px] text-[#555e70]">
-                      {day.firstAt} — {day.lastAt}
-                    </p>
-                  </div>
-
-                  {/* Stats row */}
-                  <div className="mb-2.5 flex items-center gap-4">
-                    <span className="text-sm font-semibold text-white">{day.total} 問</span>
-                    <div className="flex items-center gap-2">
-                      <div className="h-px w-16 overflow-hidden rounded-full bg-[#2a2f3f]">
-                        <div
-                          className="h-full rounded-full"
-                          style={{ width: `${acc}%`, background: accColor }}
-                        />
-                      </div>
-                      <span className="text-xs font-semibold tabular-nums" style={{ color: accColor }}>
-                        {acc}%
-                      </span>
-                    </div>
-                    <span className="text-[10px] text-[#555e70]">
-                      ✓{day.correct} ✗{day.total - day.correct}
-                    </span>
-                  </div>
-
-                  {/* Subject tags */}
-                  {day.subjects.length > 0 && (
-                    <div className="mb-2 flex flex-wrap gap-1">
-                      {day.subjects.map((s) => (
-                        <span
-                          key={s.slug}
-                          className="rounded-md border border-[#2a2f3f] px-2 py-0.5 text-[10px] text-[#555e70]"
-                        >
-                          {SUBJECT_LABELS[s.slug] ?? s.slug} {s.count}
-                        </span>
-                      ))}
-                    </div>
-                  )}
-
-                  {/* Category dots */}
-                  <div className="flex flex-wrap gap-2">
-                    {day.categories.slice(0, 6).map((c) => (
-                      <div key={c.name} className="flex items-center gap-1.5">
-                        <span
-                          className="h-1.5 w-1.5 shrink-0 rounded-full"
-                          style={{ background: c.color }}
-                        />
-                        <span className="text-[10px] text-[#8892a4]">
-                          {c.name} {c.count}
-                        </span>
-                      </div>
-                    ))}
-                    {day.categories.length > 6 && (
-                      <span className="text-[10px] text-[#555e70]">
-                        +{day.categories.length - 6}
-                      </span>
-                    )}
-                  </div>
-                </div>
-              );
-            })}
-          </div>
-        )}
-
-        <Link
-          href="/"
-          className="mt-4 block w-full rounded-xl border border-[#2a2f3f] py-3 text-center text-sm text-[#555e70] transition hover:border-[#3a4050] hover:text-[#8892a4]"
-        >
-          メニューに戻る
-        </Link>
+        <div className="log-stat">
+          <b>{totalEvents.toLocaleString()}</b>
+          <span>累計解答数</span>
+        </div>
       </div>
-    </div>
+
+      {days.length > 0 && (
+        <>
+          <div className="card" style={{ marginBottom: 16 }}>
+            <div className="card-head">
+              <div>
+                <div className="card-title">直近7日間</div>
+                <div className="card-sub">日別の解答数</div>
+              </div>
+            </div>
+            <WeeklyBars days={days} todayKey={todayKey} />
+          </div>
+
+          <div className="card" style={{ marginBottom: 16 }}>
+            <div className="card-head">
+              <div>
+                <div className="card-title">学習ヒートマップ</div>
+                <div className="card-sub">直近90日の解答数（セルにカーソルを乗せると内訳）</div>
+              </div>
+              <div className="heatmap-legend">
+                少ない
+                {HEAT_STEPS.map((bg, i) => (
+                  <span
+                    key={i}
+                    className="sw"
+                    style={{ background: bg, border: i === 0 ? "1px solid var(--border)" : undefined }}
+                  />
+                ))}
+                多い
+              </div>
+            </div>
+            <Heatmap days={days} todayKey={todayKey} />
+          </div>
+        </>
+      )}
+
+      <div className="card-title" style={{ marginBottom: 10 }}>
+        日別の記録
+      </div>
+
+      {days.length === 0 ? (
+        <div className="card py-12 text-center">
+          <p className="text-sm text-muted">まだ記録がありません</p>
+          <p className="mt-1 text-xs text-muted2">
+            問題を解く・単語カードをめくると自動的に記録されます
+          </p>
+        </div>
+      ) : (
+        days.map((day) => {
+          const acc = Math.round((day.correct / day.total) * 100);
+          const accColor = acc >= 70 ? "var(--green)" : acc >= 50 ? "var(--amber)" : "var(--red)";
+          return (
+            <div key={day.dateKey} className="day-card">
+              <div className="day-head">
+                <span className="lbl">{day.label}</span>
+                <span className="time">
+                  {day.firstAt} — {day.lastAt}
+                </span>
+              </div>
+
+              <div className="day-stats">
+                <span className="cnt">{day.total} 問</span>
+                <div className="acc-track">
+                  <div className="acc-fill" style={{ width: `${acc}%`, background: accColor }} />
+                </div>
+                <span className="acc-pct" style={{ color: accColor }}>
+                  {acc}%
+                </span>
+                <span className="marks">
+                  ✓{day.correct} ✗{day.total - day.correct}
+                </span>
+              </div>
+
+              {day.subjects.length > 0 && (
+                <div className="tag-row">
+                  {day.subjects.map((s) => (
+                    <span key={s.slug} className="tag-chip">
+                      {SUBJECT_LABELS[s.slug] ?? s.slug} {s.count}
+                    </span>
+                  ))}
+                </div>
+              )}
+
+              <div className="cat-row">
+                {day.categories.slice(0, 6).map((c) => (
+                  <div key={c.name} className="item">
+                    <span className="dot" style={{ background: c.color }} />
+                    {c.name} {c.count}
+                  </div>
+                ))}
+                {day.categories.length > 6 && (
+                  <div className="item text-muted2">+{day.categories.length - 6}</div>
+                )}
+              </div>
+            </div>
+          );
+        })
+      )}
+    </>
   );
 }

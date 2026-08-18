@@ -1,4 +1,67 @@
+"use client";
+
+import { useEffect, useState } from "react";
 import { type ExplanationData } from "@/features/quiz/lib/types";
+
+// 図（SVG）はドット柄のキャンバスに載せ、クリックでライトボックス拡大できるようにする。
+// 決定木のような細かい図は本文幅だと潰れるため、拡大導線を常に添える。
+function Figure({ svg }: { svg: string }) {
+  const [zoom, setZoom] = useState(false);
+
+  useEffect(() => {
+    if (!zoom) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") setZoom(false);
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [zoom]);
+
+  return (
+    <>
+      <div className="figure-card">
+        <div className="figure-head">
+          <p className="text-[10px] font-semibold uppercase tracking-widest text-[#555e70]">
+            図で見る
+          </p>
+          <button className="figure-zoom-btn" onClick={() => setZoom(true)}>
+            <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <circle cx="11" cy="11" r="7" />
+              <path d="M21 21l-3.5-3.5M11 8v6M8 11h6" />
+            </svg>
+            拡大表示
+          </button>
+        </div>
+        <div
+          className="figure-canvas"
+          role="button"
+          tabIndex={0}
+          onClick={() => setZoom(true)}
+          onKeyDown={(e) => {
+            if (e.key === "Enter" || e.key === " ") setZoom(true);
+          }}
+          dangerouslySetInnerHTML={{ __html: svg }}
+        />
+      </div>
+
+      {zoom && (
+        <div
+          className="lightbox-overlay"
+          onClick={(e) => {
+            if (e.target === e.currentTarget) setZoom(false);
+          }}
+        >
+          <div className="lightbox-panel">
+            <button className="lightbox-close" onClick={() => setZoom(false)} aria-label="閉じる">
+              ✕
+            </button>
+            <div dangerouslySetInnerHTML={{ __html: svg }} />
+          </div>
+        </div>
+      )}
+    </>
+  );
+}
 
 export function RichExplanation({ data }: { data: ExplanationData }) {
   const lbl = "mb-2 text-[10px] font-semibold uppercase tracking-widest text-[#555e70]";
@@ -30,15 +93,7 @@ export function RichExplanation({ data }: { data: ExplanationData }) {
         </div>
       )}
 
-      {data.viz && (
-        <div>
-          <p className={lbl}>図で見る</p>
-          <div
-            className="overflow-x-auto rounded-xl bg-[#141720] px-4 py-4 [&_svg]:h-auto [&_svg]:w-full [&_svg]:max-w-[420px]"
-            dangerouslySetInnerHTML={{ __html: data.viz }}
-          />
-        </div>
-      )}
+      {data.viz && <Figure svg={data.viz} />}
 
       {data.terms && data.terms.length > 0 && (
         <div>
