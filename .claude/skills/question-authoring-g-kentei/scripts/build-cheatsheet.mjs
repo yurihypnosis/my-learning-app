@@ -10,11 +10,25 @@ const [termsOut, comparisonsOut] = process.argv.slice(2);
 const categorySort = new Map();
 for (const row of raw) categorySort.set(row.category, row.category_sort);
 
+// ── 表記ゆれの吸収: 完全一致で辞書を作ると「シグモイド」と「シグモイド関数」のように
+//    同じ概念が別エントリに分裂し、検索で片方しか出ずに"抜けている"ように見える。
+//    ここは意味が完全に同じと確認できたものだけを手動で対応させる
+//    (「正則化」と「L2正則化」のように包含関係でも別概念のものは対応させない)。
+const ALIASES = new Map([
+  ["シグモイド", "シグモイド関数"],
+  ["ROC（Receiver Operating Characteristic）曲線", "ROC（Receiver Operating Characteristic）"],
+  ["ゲート機構", "ゲート"],
+  ["微分の定義", "微分"],
+  ["標準偏差（σ）", "標準偏差"],
+]);
+const canon = (term) => ALIASES.get(term) ?? term;
+
 // ── 用語辞書: 同じ用語が複数問で少しずつ違う言い回しの定義を持つので、
 //    最も長い(=情報量が多いとみなせる)ものを代表定義にし、他は言い換えとして残す。
 const termAgg = new Map();
 for (const row of raw) {
-  for (const [term, def] of row.terms) {
+  for (const [rawTerm, def] of row.terms) {
+    const term = canon(rawTerm);
     let t = termAgg.get(term);
     if (!t) {
       t = { defs: new Map(), categories: new Map(), questionIds: new Set(), examples: [] };
@@ -60,13 +74,13 @@ const terms = [...termAgg.entries()]
 // ── 比較グループ: 1問の terms に2つ以上の用語が入っているものは、
 //    その問題が「これらを区別させる」ために意図的に並べた組。vs はそのままの解説として使う。
 const comparisons = raw
-  .filter((row) => row.terms.length >= 2)
   .map((row) => ({
     id: row.source_ref,
     category: row.category,
-    terms: row.terms.map(([term]) => term),
+    terms: [...new Set(row.terms.map(([term]) => canon(term)))],
     note: row.vs,
-  }));
+  }))
+  .filter((row) => row.terms.length >= 2);
 
 fs.writeFileSync(termsOut, JSON.stringify(terms));
 fs.writeFileSync(comparisonsOut, JSON.stringify(comparisons));
