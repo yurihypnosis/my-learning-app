@@ -1,7 +1,13 @@
 import { CheatsheetScreen } from "@/features/g-kentei-cheatsheet/screens/cheatsheet-screen";
-import cheatsheetData from "@/features/g-kentei-cheatsheet/data/cheatsheet.json";
-import type { CheatsheetEntry } from "@/features/g-kentei-cheatsheet/lib/types";
+import termsData from "@/features/g-kentei-cheatsheet/data/terms.json";
+import comparisonsData from "@/features/g-kentei-cheatsheet/data/comparisons.json";
+import type { ComparisonGroup, TermEntry } from "@/features/g-kentei-cheatsheet/lib/types";
 
 export default function GKenteiCheatsheetPage() {
-  return <CheatsheetScreen entries={cheatsheetData as CheatsheetEntry[]} />;
+  return (
+    <CheatsheetScreen
+      terms={termsData as TermEntry[]}
+      comparisons={comparisonsData as ComparisonGroup[]}
+    />
+  );
 }
