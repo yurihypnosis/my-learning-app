@@ -2,6 +2,7 @@ import { useState } from "react";
 import { type useRouter } from "next/navigation";
 import { getProgress, isResting, type ProgressMap } from "@/features/quiz/lib/selection";
 import {
+  examGroupKey,
   type ExamGroup,
   type SectionQuestionRef,
   type UserGoal,
@@ -775,6 +776,15 @@ export function MenuScreen({
             <div className="res-list">
               {[
                 { label: "苦手分析", action: () => setScreen("analysis"), color: "#f87171" },
+                ...(examGroupKey(currentSubjectSlug) === "g-kentei"
+                  ? [
+                      {
+                        label: "G検定チートシート",
+                        action: () => router.push("/g-kentei/cheatsheet"),
+                        color: "#0B5CAB",
+                      },
+                    ]
+                  : []),
                 { label: "単語カード", action: () => router.push("/flashcards"), color: "#a78bfa" },
                 { label: "思考フレーム", action: () => router.push("/mindset"), color: "#22c55e" },
                 { label: "コードの読み方", action: () => router.push("/code-tour"), color: "#f97316" },
